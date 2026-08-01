@@ -1,0 +1,9 @@
+# Development / test-only dependencies
+# Install with: pip install -r requirements-dev.txt
+-r requirements.txt
+
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pulp>=2.7.0
+pandas>=2.1.0
+numpy>=1.26.0

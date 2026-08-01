@@ -1,0 +1,296 @@
+name: Desktop App CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect desktop changes
+    runs-on: ubuntu-latest
+    outputs:
+      desktop: ${{ steps.detect.outputs.desktop }}
+
+    steps:
+      - name: Checkout App
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect desktop-relevant files
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+            echo "Manual run: forcing desktop validation."
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+
+          if [[ "$base" =~ ^0+$ ]]; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+            echo "No usable base commit: forcing desktop validation."
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "$base" "$head")"
+          echo "$changed_files"
+
+          if echo "$changed_files" | grep -E '^(backend/|compute/|web/|desktop/|\.github/workflows/(build|desktop-ci)\.yml$|LICENSE$|README\.md$|SECURITY\.md$|SUPPORTED-VERSIONS\.md$|THIRD-PARTY-NOTICES\.md$|package-lock\.json$|package\.json$)' >/dev/null; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  app-native:
+    name: App-native validation
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+
+    steps:
+      - name: Checkout App
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Audit publishable App source
+        working-directory: desktop
+        run: npm run audit:publication
+
+      - name: Verify generated third-party notices
+        run: python tools/licensing/generate_third_party_notices.py --check
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Audit web production dependencies
+        working-directory: web
+        run: npm audit --omit=dev
+
+      - name: Build web frontend
+        working-directory: web
+        run: npm run build
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --constraint requirements.lock.txt -r requirements.txt -r ../compute/requirements.txt
+          python -m pip check
+
+      - name: Compile backend Python
+        working-directory: backend
+        run: python -m compileall app
+
+      - name: Run backend tests
+        working-directory: backend
+        run: python -m pytest
+
+      - name: Install compute test dependencies
+        working-directory: compute
+        run: python -m pip install --constraint ../backend/requirements.lock.txt -r requirements-dev.txt
+
+      - name: Compile compute Python
+        working-directory: compute
+        run: python -m compileall src
+
+      - name: Run compute tests
+        working-directory: compute
+        env:
+          PYTHONPATH: src
+        run: python -m pytest
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Audit desktop dependencies
+        working-directory: desktop
+        run: npm run audit:security
+
+      - name: Run desktop shell contract tests
+        working-directory: desktop
+        run: npm test
+
+      - name: Check desktop JavaScript syntax
+        working-directory: desktop
+        shell: bash
+        run: |
+          node --check main.js
+          for script in scripts/*.js; do
+            node --check "$script"
+          done
+
+      - name: Verify packaged frontend source bundle
+        working-directory: desktop
+        run: npm run verify:frontend
+
+  windows-process-ownership:
+    name: Windows Electron process ownership
+    runs-on: windows-latest
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+
+    steps:
+      - name: Checkout App
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Verify unrelated Electron instance survives owned shutdown
+        working-directory: desktop
+        run: npm run test:electron-ownership
+
+  external-desktop-tests:
+    name: External desktop test suite
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - app-native
+    if: needs.changes.outputs.desktop == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+
+    steps:
+      - name: Checkout App
+        uses: actions/checkout@v5
+        with:
+          path: EYP/MasterplanOptimiserV3 - App/masterplanOptimiserV3 - App
+          persist-credentials: false
+
+      - name: Checkout Testing
+        uses: actions/checkout@v5
+        with:
+          repository: Brian-Funk/masterplanOptimiserV3---Testing
+          ref: db86f01e8890e8fbfd85366baaa64b6a1319bb98
+          path: EYP/MasterplanOptimiserV3 - Testing/masterplanOptimiserV3---Testing
+          token: ${{ secrets.TESTING_REPO_READ_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install desktop app Python dependencies
+        run: |
+          app_root="EYP/MasterplanOptimiserV3 - App/masterplanOptimiserV3 - App"
+          python -m pip install \
+            --constraint "$app_root/backend/requirements.lock.txt" \
+            -r "$app_root/backend/requirements.txt"
+          python -m pip install \
+            --constraint "$app_root/backend/requirements.lock.txt" \
+            -r "$app_root/compute/requirements-dev.txt"
+          python -m pip check
+
+      - name: Install testing Python dependencies
+        working-directory: EYP/MasterplanOptimiserV3 - Testing/masterplanOptimiserV3---Testing
+        run: python -m pip install -r requirements.txt
+
+      - name: Run external desktop backend tests
+        working-directory: EYP/MasterplanOptimiserV3 - Testing/masterplanOptimiserV3---Testing
+        run: python -m pytest desktop_backend/ -v
+
+      - name: Install testing frontend dependencies
+        working-directory: EYP/MasterplanOptimiserV3 - Testing/masterplanOptimiserV3---Testing
+        run: npm ci
+
+      - name: Run external desktop frontend tests
+        working-directory: EYP/MasterplanOptimiserV3 - Testing/masterplanOptimiserV3---Testing
+        run: npm run test:desktop
+
+  desktop-ci-result:
+    name: desktop-ci-result
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - app-native
+      - windows-process-ownership
+      - external-desktop-tests
+    if: always()
+
+    steps:
+      - name: Evaluate desktop CI result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          desktop_changed="${{ needs.changes.outputs.desktop }}"
+          app_native="${{ needs.app-native.result }}"
+          process_ownership="${{ needs.windows-process-ownership.result }}"
+          external_tests="${{ needs.external-desktop-tests.result }}"
+          trusted_external_context="${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"
+
+          echo "desktop_changed=$desktop_changed"
+          echo "app_native=$app_native"
+          echo "process_ownership=$process_ownership"
+          echo "external_tests=$external_tests"
+          echo "trusted_external_context=$trusted_external_context"
+
+          if [[ "$desktop_changed" != "true" ]]; then
+            echo "No desktop-relevant changes detected."
+            exit 0
+          fi
+
+          if [[ "$app_native" != "success" ]]; then
+            echo "App-native validation did not pass."
+            exit 1
+          fi
+
+          if [[ "$process_ownership" != "success" ]]; then
+            echo "Windows Electron process ownership validation did not pass."
+            exit 1
+          fi
+
+          if [[ "$trusted_external_context" == "true" ]]; then
+            if [[ "$external_tests" != "success" ]]; then
+              echo "External desktop test suite did not pass."
+              exit 1
+            fi
+          else
+            echo "External desktop tests skipped for an untrusted fork context."
+          fi
+
+          echo "Desktop CI passed."

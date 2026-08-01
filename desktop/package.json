@@ -1,0 +1,78 @@
+{
+  "name": "masterplan-optimizer-desktop",
+  "version": "3.8.0",
+  "description": "Desktop application for Masterplan Optimiser",
+  "license": "AGPL-3.0-only",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test tests/process-ownership.test.js tests/runtime-config.test.js tests/user-data-paths.test.js tests/integrity.test.js tests/manifest-generation.test.js tests/dependency-audit.test.js tests/smoke-mode.test.js tests/release-workflow.test.js tests/publication-audit.test.js",
+    "audit:security": "node scripts/audit-dependencies.js",
+    "audit:publication": "node scripts/audit-publication.js",
+    "audit:publication:history": "node scripts/audit-publication.js --history",
+    "test:electron-ownership": "set MP_RUN_ELECTRON_INTEGRATION=1&& node --test tests/windows-electron-ownership.test.js",
+    "test:packaged-smoke": "node scripts/smoke-packaged.js dist",
+    "prebuild": "npm --prefix ../web run build && npm run verify:frontend",
+    "start": "electron .",
+    "prebuild:win": "npm --prefix ../web run build && npm run verify:frontend",
+    "build": "electron-builder",
+    "prebuild:mac": "npm --prefix ../web run build && npm run verify:frontend",
+    "build:win": "electron-builder --win",
+    "prebuild:linux": "npm --prefix ../web run build && npm run verify:frontend",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "verify:frontend": "node scripts/verify-frontend-bundle.js"
+  },
+  "build": {
+    "appId": "com.eyp.masterplan-optimizer",
+    "productName": "Masterplan Optimiser",
+    "asar": true,
+    "afterPack": "./scripts/generate-manifest.js",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "startup-screen.js",
+      "security-policy.js",
+      "integrity.js",
+      "process-ownership.js",
+      "runtime-config.js",
+      "smoke-mode.js",
+      "user-data-paths.js",
+      "package.json",
+      "assets/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png",
+      "artifactName": "Masterplan-Optimiser-${version}.${ext}"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png",
+      "artifactName": "Masterplan-Optimiser-${version}-arm64.${ext}"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "artifactName": "Masterplan-Optimiser-${version}.${ext}"
+    }
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1"
+  },
+  "devDependencies": {
+    "electron": "^42.0.1",
+    "electron-builder": "^26.15.3"
+  }
+}
