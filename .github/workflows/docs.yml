@@ -4,18 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "docs/**"
-      - "mkdocs.yml"
-      - "backend/app/**"
-      - "compute/src/**"
-      - "web/src/**"
-      - "web/typedoc.json"
-      - "web/tsconfig.json"
-      - "web/package.json"
-      - "web/package-lock.json"
-      - ".github/workflows/docs.yml"
-      - ".github/CODEOWNERS"
   push:
     branches:
       - main
