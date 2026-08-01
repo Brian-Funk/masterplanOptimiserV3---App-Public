@@ -1,0 +1,2 @@
+# Packaging toolchain used to create the bundled Desktop backend.
+pyinstaller==6.21.0

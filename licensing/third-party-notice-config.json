@@ -1,0 +1,43 @@
+{
+  "project": "Masterplan Optimiser Desktop",
+  "python_locks": [
+    "backend/requirements.lock.txt"
+  ],
+  "npm_locks": [
+    "web/package-lock.json",
+    "desktop/package-lock.json"
+  ],
+  "python_metadata": "licensing/python-licenses.json",
+  "python_license_overrides": {},
+  "output_files": [
+    "THIRD-PARTY-NOTICES.md",
+    "web/legal-artifacts/THIRD-PARTY-NOTICES.md"
+  ],
+  "other_components": [
+    {
+      "name": "Electron",
+      "license": "MIT",
+      "evidence": "Electron runtime licence and Chromium notices included by electron-builder"
+    },
+    {
+      "name": "Chromium",
+      "license": "BSD-3-Clause and component-specific licences",
+      "evidence": "Electron-generated LICENSES.chromium.html in packaged applications"
+    },
+    {
+      "name": "Node.js",
+      "license": "MIT and component-specific licences",
+      "evidence": "Electron-generated runtime notices"
+    },
+    {
+      "name": "Source Sans 3",
+      "license": "OFL-1.1",
+      "evidence": "Bundled local font and @fontsource package metadata"
+    },
+    {
+      "name": "PyInstaller bootloader",
+      "license": "GPL-2.0-or-later WITH Bootloader-exception",
+      "evidence": "Pinned packaging-tool metadata and packaged backend provenance"
+    }
+  ]
+}

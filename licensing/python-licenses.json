@@ -1,0 +1,329 @@
+{
+  "packages": {
+    "absl-py==2.5.0": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/absl-py/"
+    },
+    "alembic==1.13.3": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/alembic/"
+    },
+    "altgraph==0.17.5": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/altgraph/"
+    },
+    "annotated-types==0.8.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/annotated-types/"
+    },
+    "anyio==4.14.2": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/anyio/"
+    },
+    "backports-tarfile==1.2.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/backports.tarfile/"
+    },
+    "certifi==2026.7.22": {
+      "license": "MPL-2.0",
+      "project_url": "https://pypi.org/project/certifi/"
+    },
+    "cffi==2.1.0": {
+      "license": "MIT-0",
+      "project_url": "https://pypi.org/project/cffi/"
+    },
+    "charset-normalizer==3.4.9": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/charset-normalizer/"
+    },
+    "click==8.4.2": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/click/"
+    },
+    "colorama==0.4.6": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/colorama/"
+    },
+    "cryptography==49.0.0": {
+      "license": "Apache-2.0 OR BSD-3-Clause",
+      "project_url": "https://pypi.org/project/cryptography/"
+    },
+    "dnspython==2.8.0": {
+      "license": "ISC",
+      "project_url": "https://pypi.org/project/dnspython/"
+    },
+    "email-validator==2.3.0": {
+      "license": "Unlicense",
+      "project_url": "https://pypi.org/project/email-validator/"
+    },
+    "fastapi==0.115.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/fastapi/"
+    },
+    "google-api-core==2.33.0": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/google-api-core/"
+    },
+    "google-api-python-client==2.198.0": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/google-api-python-client/"
+    },
+    "google-auth-httplib2==0.4.0": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/google-auth-httplib2/"
+    },
+    "google-auth-oauthlib==1.4.0": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/google-auth-oauthlib/"
+    },
+    "google-auth==2.56.2": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/google-auth/"
+    },
+    "googleapis-common-protos==1.75.0": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/googleapis-common-protos/"
+    },
+    "greenlet==3.5.4": {
+      "license": "MIT AND PSF-2.0",
+      "project_url": "https://pypi.org/project/greenlet/"
+    },
+    "h11==0.16.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/h11/"
+    },
+    "httpcore==1.0.9": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/httpcore/"
+    },
+    "httplib2==0.32.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/httplib2/"
+    },
+    "httptools==0.8.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/httptools/"
+    },
+    "httpx==0.27.2": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/httpx/"
+    },
+    "idna==3.18": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/idna/"
+    },
+    "immutabledict==4.3.1": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/immutabledict/"
+    },
+    "importlib-metadata==9.0.0": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/importlib-metadata/"
+    },
+    "iniconfig==2.3.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/iniconfig/"
+    },
+    "jaraco-classes==3.4.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/jaraco.classes/"
+    },
+    "jaraco-context==6.1.2": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/jaraco.context/"
+    },
+    "jaraco-functools==4.6.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/jaraco.functools/"
+    },
+    "jeepney==0.9.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/jeepney/"
+    },
+    "keyring==25.7.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/keyring/"
+    },
+    "macholib==1.16.4": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/macholib/"
+    },
+    "mako==1.3.12": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/Mako/"
+    },
+    "markupsafe==3.0.3": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/MarkupSafe/"
+    },
+    "more-itertools==11.1.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/more-itertools/"
+    },
+    "numpy==2.4.6": {
+      "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+      "project_url": "https://pypi.org/project/numpy/"
+    },
+    "oauthlib==3.3.1": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/oauthlib/"
+    },
+    "ortools==9.9.3963": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/ortools/"
+    },
+    "packaging==26.2": {
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "project_url": "https://pypi.org/project/packaging/"
+    },
+    "pandas==3.0.5": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/pandas/"
+    },
+    "pefile==2024.8.26": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/pefile/"
+    },
+    "pluggy==1.6.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/pluggy/"
+    },
+    "proto-plus==1.28.2": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/proto-plus/"
+    },
+    "protobuf==7.35.1": {
+      "license": "3-Clause BSD License",
+      "project_url": "https://pypi.org/project/protobuf/"
+    },
+    "pyasn1-modules==0.4.2": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/pyasn1-modules/"
+    },
+    "pyasn1==0.6.4": {
+      "license": "BSD-2-Clause",
+      "project_url": "https://pypi.org/project/pyasn1/"
+    },
+    "pycparser==3.0": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/pycparser/"
+    },
+    "pydantic-core==2.23.4": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/pydantic_core/"
+    },
+    "pydantic-settings==2.6.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/pydantic-settings/"
+    },
+    "pydantic==2.9.2": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/pydantic/"
+    },
+    "pyinstaller-hooks-contrib==2026.6": {
+      "license": "Apache-2.0 OR GPL-2.0-only",
+      "project_url": "https://pypi.org/project/pyinstaller-hooks-contrib/"
+    },
+    "pyinstaller==6.21.0": {
+      "license": "GPL-2.0-only",
+      "project_url": "https://pypi.org/project/pyinstaller/"
+    },
+    "pyparsing==3.3.2": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/pyparsing/"
+    },
+    "pytest-asyncio==0.24.0": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/pytest-asyncio/"
+    },
+    "pytest==8.3.3": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/pytest/"
+    },
+    "python-dateutil==2.9.0.post0": {
+      "license": "Dual License",
+      "project_url": "https://pypi.org/project/python-dateutil/"
+    },
+    "python-dotenv==1.0.1": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/python-dotenv/"
+    },
+    "python-multipart==0.0.12": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/python-multipart/"
+    },
+    "pywin32-ctypes==0.2.3": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/pywin32-ctypes/"
+    },
+    "pyyaml==6.0.3": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/PyYAML/"
+    },
+    "requests-oauthlib==2.0.0": {
+      "license": "ISC",
+      "project_url": "https://pypi.org/project/requests-oauthlib/"
+    },
+    "requests==2.34.2": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/requests/"
+    },
+    "secretstorage==3.5.0": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/SecretStorage/"
+    },
+    "six==1.17.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/six/"
+    },
+    "sniffio==1.3.1": {
+      "license": "MIT OR Apache-2.0",
+      "project_url": "https://pypi.org/project/sniffio/"
+    },
+    "sqlalchemy==2.0.35": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/SQLAlchemy/"
+    },
+    "starlette==0.38.6": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/starlette/"
+    },
+    "typing-extensions==4.16.0": {
+      "license": "PSF-2.0",
+      "project_url": "https://pypi.org/project/typing-extensions/"
+    },
+    "tzdata==2026.3": {
+      "license": "Apache-2.0",
+      "project_url": "https://pypi.org/project/tzdata/"
+    },
+    "uritemplate==4.2.0": {
+      "license": "BSD 3-Clause OR Apache-2.0",
+      "project_url": "https://pypi.org/project/uritemplate/"
+    },
+    "urllib3==2.7.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/urllib3/"
+    },
+    "uvicorn==0.32.0": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/uvicorn/"
+    },
+    "uvloop==0.22.1": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/uvloop/"
+    },
+    "watchfiles==1.2.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/watchfiles/"
+    },
+    "websockets==17.0.1": {
+      "license": "BSD-3-Clause",
+      "project_url": "https://pypi.org/project/websockets/"
+    },
+    "zipp==4.1.0": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/zipp/"
+    }
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,291 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Verify build and release preconditions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable public release preconditions
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm --prefix desktop run audit:publication:history
+          python tools/licensing/generate_third_party_notices.py --check
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          expected_version="${TAG#v}"
+          [[ "$(node -p 'require("./desktop/package.json").version')" == "$expected_version" ]]
+          [[ "$(node -p 'require("./web/package.json").version')" == "$expected_version" ]]
+          [[ "$(python3 -c 'import tomllib; print(tomllib.load(open("compute/pyproject.toml", "rb"))["project"]["version"])')" == "$expected_version" ]]
+          git fetch origin main --quiet
+          [[ "$(git rev-parse "$TAG^{commit}")" == "$GITHUB_SHA" ]]
+          [[ "$(git rev-parse origin/main)" == "$GITHUB_SHA" ]]
+          [[ -z "$(gh release view "$TAG" --json id --jq .id 2>/dev/null || true)" ]]
+          check="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" \
+            --jq '([.check_runs[] | select(.name == "desktop-ci-result")] | sort_by(.id) | last) // {}')"
+          status="$(jq -r '.status // "missing"' <<< "$check")"
+          conclusion="$(jq -r '.conclusion // "missing"' <<< "$check")"
+          [[ "$status" == completed && "$conclusion" == success ]] || {
+            echo "desktop-ci-result is $status/$conclusion for $GITHUB_SHA" >&2
+            exit 1
+          }
+          repository="$(env -u GH_TOKEN -u GITHUB_TOKEN \
+            curl --fail --silent --show-error \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}")"
+          jq -e '.private == false && .visibility == "public"' <<< "$repository" >/dev/null || {
+            echo "The App repository must be public before release artefacts are built." >&2
+            exit 1
+          }
+
+  build:
+    needs: preflight
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            build_cmd: npm run build:win
+            artefact_glob: "*.exe"
+          - os: macos-latest
+            build_cmd: npm run build:mac
+            artefact_glob: "*.dmg"
+          - os: ubuntu-latest
+            build_cmd: npm run build:linux
+            artefact_glob: "*.AppImage"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      # --- Backend (includes compute/optimiser) ---
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install --constraint requirements.lock.txt -r requirements.txt -r ../compute/requirements.txt
+          pip install --constraint requirements.lock.txt -r requirements-build.txt
+          pip check
+
+      - name: Package backend with PyInstaller
+        working-directory: backend
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --onedir --name backend \
+            --paths . \
+            --paths ../compute/src \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols \
+            --hidden-import uvicorn.protocols.http \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import uvicorn.lifespan.off \
+            --hidden-import sqlalchemy.dialects.sqlite \
+            --hidden-import pydantic_settings \
+            --hidden-import multipart \
+            --hidden-import flow_checker \
+            --hidden-import fatigue_optimizer \
+            --copy-metadata keyring \
+            --collect-submodules app \
+            --collect-submodules keyring \
+            --collect-submodules ortools \
+            app/main.py
+          cp .env.desktop dist/backend/.env.desktop
+
+      # --- Web frontend ---
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Audit web production dependencies
+        working-directory: web
+        run: npm audit --omit=dev
+
+      - name: Build web frontend
+        working-directory: web
+        env:
+          MP_PUBLIC_SOURCE_REPOSITORY_URL: https://github.com/${{ github.repository }}
+          MP_PUBLIC_SOURCE_REVISION: ${{ github.sha }}
+          MP_PUBLIC_SOURCE_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
+        run: npm run build
+
+      - name: Prepare standalone frontend
+        working-directory: web
+        shell: bash
+        run: |
+          cp -r public .next/standalone/public
+          cp -r .next/static .next/standalone/.next/static
+
+      # --- Desktop ---
+      - name: Ensure PyInstaller binaries are executable
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod -R +x backend/dist/backend/ || true
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Audit desktop dependencies
+        working-directory: desktop
+        run: npm run audit:security
+
+      - name: Build desktop app
+        working-directory: desktop
+        run: ${{ matrix.build_cmd }}
+        env:
+          MANIFEST_SIGNING_KEY: ${{ secrets.MANIFEST_SIGNING_KEY }}
+
+      - name: Smoke test packaged desktop app
+        if: runner.os != 'Linux'
+        working-directory: desktop
+        run: |
+          npm run test:packaged-smoke
+          npm run test:packaged-smoke
+
+      - name: Smoke test packaged desktop app on Linux
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: |
+          xvfb-run -a npm run test:packaged-smoke
+          xvfb-run -a npm run test:packaged-smoke
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            desktop/dist/${{ matrix.artefact_glob }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artefacts
+        uses: actions/download-artifact@v5
+        with:
+          path: artefacts
+          merge-multiple: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Generate checksums
+        working-directory: artefacts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          expected=(
+            "Masterplan-Optimiser-${version}.exe"
+            "Masterplan-Optimiser-${version}-arm64.dmg"
+            "Masterplan-Optimiser-${version}.AppImage"
+          )
+          for artefact in "${expected[@]}"; do
+            [[ -f "$artefact" ]] || {
+              echo "Missing expected release artefact: $artefact" >&2
+              exit 1
+            }
+          done
+          sha256sum "${expected[@]}" > checksums.txt
+          cat checksums.txt
+
+      - name: Sign and verify checksum manifest
+        working-directory: artefacts
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/build.yml@refs/tags/${TAG}"
+          cosign sign-blob --yes --bundle checksums.txt.bundle checksums.txt
+          cosign verify-blob --bundle checksums.txt.bundle \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "$identity" \
+            checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artefacts/**/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          name: ${{ github.ref_name }}
+
+      - name: Verify anonymous public release
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          unset GH_TOKEN GITHUB_TOKEN
+          version="${TAG#v}"
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/build.yml@refs/tags/${TAG}"
+          release="$(curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")"
+          jq -e --arg tag "$TAG" \
+            '.tag_name == $tag && .name == $tag && .draft == false && .prerelease == false' \
+            <<< "$release" >/dev/null
+          verification_dir="$(mktemp -d)"
+          trap 'rm -rf "$verification_dir"' EXIT
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          for asset in \
+              "Masterplan-Optimiser-${version}.exe" \
+              "Masterplan-Optimiser-${version}-arm64.dmg" \
+              "Masterplan-Optimiser-${version}.AppImage" \
+              checksums.txt checksums.txt.bundle; do
+            curl --fail --location --silent --show-error \
+              --retry 12 --retry-all-errors --retry-delay 5 \
+              "${base}/${asset}" --output "${verification_dir}/${asset}"
+          done
+          cd "$verification_dir"
+          cosign verify-blob --bundle checksums.txt.bundle \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "$identity" \
+            checksums.txt
+          sha256sum -c checksums.txt
