@@ -10,6 +10,7 @@ import {
   MpBackendPingResult,
   MpBackendDataPolicy,
 } from "@/lib/api";
+import { ProcessorEvidenceSection } from "./ProcessorEvidenceSection";
 import {
   CheckCircle,
   AlertTriangle,
@@ -472,6 +473,14 @@ export function MpBackendSection() {
       </Card>
 
       {/* Publish  -  only when configured */}
+      {settings?.configured && (
+        <Card>
+          <div className="p-4">
+            <ProcessorEvidenceSection />
+          </div>
+        </Card>
+      )}
+
       {settings?.configured && (
         <Card>
           <div className="p-4 space-y-4">
