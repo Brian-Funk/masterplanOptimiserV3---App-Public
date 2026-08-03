@@ -20,6 +20,8 @@ from app.models.group import GroupMembership
 from app.models.optimization_job import OptimizationJob
 from app.models.person import Person
 from app.models.privacy import DesktopDeletionOutbox, PersonUnavailability
+from app.models.operator_evidence import ProcessorEvidenceKey
+from app.core.operator_evidence import sign_document
 from app.models.task import Task
 
 
@@ -237,8 +239,22 @@ def stage_deletion_report(
     else:
         raise ValueError("The deletion work order operation is invalid")
 
+    processor = db.query(ProcessorEvidenceKey).filter(
+        ProcessorEvidenceKey.event_evidence_id == event.evidence_id,
+        ProcessorEvidenceKey.processor_id == work_order.get("processor_entity_id"),
+        ProcessorEvidenceKey.state == "active",
+    ).order_by(ProcessorEvidenceKey.id.desc()).first()
+    if processor is None or not processor.server_instance_id:
+        raise ValueError("The work order has no active event processor key")
+    completed_at = datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
     report = {
-        "version": 1,
+        "format": "mp-opt-desktop-deletion-receipt-v2",
+        "instance_id": processor.server_instance_id,
+        "entity_id": processor.processor_id,
+        "key_id": processor.key_id,
+        "role": "processor",
+        "algorithm": "Ed25519",
+        "public_key_sha256": processor.public_key_sha256,
         "work_order_id": work_order["work_order_id"],
         "event_ref": work_order["event_ref"],
         "subject_ref": work_order.get("subject_ref"),
@@ -246,9 +262,35 @@ def stage_deletion_report(
         "outcome": "deleted",
         "deleted_counts": counts,
         "outstanding_actions": outstanding,
-        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": completed_at,
     }
-    report_json = canonical_json(report)
+    signed_report = {"document": report, "proof": sign_document(
+        db, identifier=processor.key_id, document=report, kind="desktop_evidence",
+    )}
+    report_json = canonical_json(signed_report)
+    copy_resolution_json = None
+    copy_resolution_sha256 = None
+    if not outstanding and counts["tracked_exports"] == 0:
+        copy_document = {
+            "format": "mp-opt-desktop-copy-resolution-v1",
+            "instance_id": processor.server_instance_id,
+            "event_ref": work_order["event_ref"],
+            "entity_id": processor.processor_id,
+            "key_id": processor.key_id,
+            "role": "processor",
+            "algorithm": "Ed25519",
+            "public_key_sha256": processor.public_key_sha256,
+            "work_order_id": work_order["work_order_id"],
+            "disposition": "no_known_local_copies",
+            "software_inventory_complete": True,
+            "operator_confirmation": "LOCAL COPIES RESOLVED",
+            "completed_at": completed_at,
+        }
+        signed_copy = {"document": copy_document, "proof": sign_document(
+            db, identifier=processor.key_id, document=copy_document, kind="desktop_evidence",
+        )}
+        copy_resolution_json = canonical_json(signed_copy)
+        copy_resolution_sha256 = hashlib.sha256(canonical_json(copy_document).encode("utf-8")).hexdigest()
     row = DesktopDeletionOutbox(
         work_order_id=work_order["work_order_id"],
         event_ref=work_order["event_ref"],
@@ -258,7 +300,9 @@ def stage_deletion_report(
         publish_secret=publish_secret,
         claim_capability=claim_capability,
         report_json=report_json,
-        report_sha256=hashlib.sha256(report_json.encode("utf-8")).hexdigest(),
+        report_sha256=hashlib.sha256(canonical_json(report).encode("utf-8")).hexdigest(),
+        copy_resolution_json=copy_resolution_json,
+        copy_resolution_sha256=copy_resolution_sha256,
         state="pending",
     )
     db.add(row)

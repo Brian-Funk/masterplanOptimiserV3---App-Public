@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -8,11 +9,14 @@ from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.core import encryption
+from app.core import operator_evidence
 from app.core.desktop_deletion import stage_deletion_report
 from app.db.database import Base
-from app.models import DesktopDeletionOutbox, Event, Person, PersonUnavailability
+from app.models import DesktopDeletionOutbox, Event, Person, PersonUnavailability, ProcessorEvidenceKey
 
 
 def test_current_encryption_rejects_plaintext_values():
@@ -67,6 +71,40 @@ def _session(tmp_path):
     return engine, sessionmaker(autoflush=False, bind=engine)()
 
 
+def _activate_processor(db, event, monkeypatch):
+    private = Ed25519PrivateKey.generate()
+    public = private.public_key().public_bytes(
+        serialization.Encoding.OpenSSH,
+        serialization.PublicFormat.OpenSSH,
+    ).decode("ascii")
+    fingerprint = hashlib.sha256(public.encode("ascii")).hexdigest()
+    row = ProcessorEvidenceKey(
+        processor_id="prc-synthetic0001",
+        key_id=f"ek-{fingerprint[:16]}",
+        role="processor",
+        event_evidence_id=event.evidence_id,
+        server_instance_id=str(uuid.uuid4()),
+        public_key=public,
+        public_key_sha256=fingerprint,
+        state="active",
+    )
+    db.add(row)
+    db.flush()
+    monkeypatch.setattr(operator_evidence, "_load_private", lambda _row: private)
+    return row
+
+
+def _work_order(event, processor, *, subject_ref, operation):
+    return {
+        "version": 1,
+        "work_order_id": str(uuid.uuid4()),
+        "event_ref": event.evidence_id,
+        "subject_ref": subject_ref,
+        "operation": operation,
+        "processor_entity_id": processor.processor_id,
+    }
+
+
 def test_subject_erasure_and_report_are_committed_together(tmp_path, monkeypatch):
     monkeypatch.setattr(encryption, "_KEY_PATH", str(tmp_path / "encryption.key"))
     monkeypatch.setattr(encryption, "_fernet", None)
@@ -85,17 +123,16 @@ def test_subject_erasure_and_report_are_committed_together(tmp_path, monkeypatch
             starts_at=datetime(2026, 8, 1, 9),
             ends_at=datetime(2026, 8, 1, 10),
         ))
+        processor = _activate_processor(db, event, monkeypatch)
         db.commit()
 
         row = stage_deletion_report(
             db,
-            work_order={
-                "version": 1,
-                "work_order_id": str(uuid.uuid4()),
-                "event_ref": event.evidence_id,
-                "subject_ref": person.evidence_subject_id,
-                "operation": "delete_subject",
-            },
+            work_order=_work_order(
+                event, processor,
+                subject_ref=person.evidence_subject_id,
+                operation="delete_subject",
+            ),
             claim_capability="one-time-claim",
             server_url="https://server.example",
             publish_secret="publish-secret",
@@ -105,7 +142,7 @@ def test_subject_erasure_and_report_are_committed_together(tmp_path, monkeypatch
         assert db.query(Person).count() == 0
         assert db.query(PersonUnavailability).count() == 0
         assert db.query(DesktopDeletionOutbox).one().id == row.id
-        report = json.loads(row.report_json)
+        report = json.loads(row.report_json)["document"]
         assert report["outcome"] == "deleted"
         assert report["deleted_counts"]["persons"] == 1
         assert report["deleted_counts"]["unavailability_intervals"] == 1
@@ -128,16 +165,11 @@ def test_pending_report_can_be_retried_after_local_event_erasure(tmp_path, monke
         db.flush()
         db.add(Person(event_id=event.id, first_name="Only", last_name="Person"))
         db.flush()
+        processor = _activate_processor(db, event, monkeypatch)
         event_id = event.id
         row = stage_deletion_report(
             db,
-            work_order={
-                "version": 1,
-                "work_order_id": str(uuid.uuid4()),
-                "event_ref": event.evidence_id,
-                "subject_ref": None,
-                "operation": "delete_event",
-            },
+            work_order=_work_order(event, processor, subject_ref=None, operation="delete_event"),
             claim_capability="one-time-claim",
             server_url="https://server.example",
             publish_secret="publish-secret",
@@ -179,24 +211,23 @@ def test_subject_erasure_is_idempotent_when_person_is_already_absent(tmp_path, m
         event = Event(name="Current event", start_date=date(2026, 8, 1), end_date=date(2026, 8, 2))
         db.add(event)
         db.flush()
+        processor = _activate_processor(db, event, monkeypatch)
         db.commit()
 
         row = stage_deletion_report(
             db,
-            work_order={
-                "version": 1,
-                "work_order_id": str(uuid.uuid4()),
-                "event_ref": event.evidence_id,
-                "subject_ref": str(uuid.uuid4()),
-                "operation": "delete_subject",
-            },
+            work_order=_work_order(
+                event, processor,
+                subject_ref=str(uuid.uuid4()),
+                operation="delete_subject",
+            ),
             claim_capability="one-time-claim",
             server_url="https://server.example",
             publish_secret="publish-secret",
         )
         db.commit()
 
-        report = json.loads(row.report_json)
+        report = json.loads(row.report_json)["document"]
         assert report["outcome"] == "deleted"
         assert all(value == 0 for value in report["deleted_counts"].values())
         assert report["outstanding_actions"] == []

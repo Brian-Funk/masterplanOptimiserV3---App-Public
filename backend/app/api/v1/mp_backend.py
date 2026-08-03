@@ -23,7 +23,9 @@ from app.models.app_settings import AppSettings
 from app.models.event import Event
 from app.models.person import Person
 from app.models.privacy import DesktopDeletionOutbox, PersonUnavailability
+from app.models.operator_evidence import ProcessorEvidenceKey
 from app.core.desktop_deletion import stage_deletion_report
+from app.core.operator_evidence import canonical_json, sign_document
 from app.models.task import Task, TaskType
 from app.models.task_template import TaskTemplate
 from app.models.assignment import Assignment
@@ -127,6 +129,11 @@ class DeletionWorkOrderSyncResponse(BaseModel):
     reports_sent: int = 0
     reports_pending: int = 0
     event_deleted: bool = False
+
+
+class LocalCopyResolutionRequest(BaseModel):
+    disposition: str
+    confirmation: str
 
 
 class GeneralSchedulePublishRequest(BaseModel):
@@ -237,6 +244,8 @@ async def _require_current_policy_acknowledgement(
     if not acknowledgement or (
         acknowledgement.get("policy_version") != policy["version"]
         or acknowledgement.get("policy_sha256") != policy["content_sha256"]
+        or not acknowledgement.get("key_id")
+        or not acknowledgement.get("document_sha256")
     ):
         raise HTTPException(
             status_code=428,
@@ -317,12 +326,28 @@ async def _flush_deletion_outbox(db: Session) -> int:
                 row.last_error_code = "network_error"
                 continue
             if response.status_code == 200:
-                row.state = "sent"
-                row.sent_at = datetime.now(timezone.utc)
-                row.publish_secret = None
-                row.claim_capability = None
-                row.last_error_code = None
-                sent += 1
+                if row.copy_resolution_json and row.copy_resolution_sent_at is None:
+                    copy_response = await client.post(
+                        f"{row.server_url}/api/v1/publish/deletion-work-orders/{row.work_order_id}/copy-resolution",
+                        headers={
+                            "Authorization": f"Bearer {row.publish_secret}",
+                            "Content-Type": "application/json",
+                        },
+                        content=row.copy_resolution_json,
+                    )
+                    if copy_response.status_code != 200:
+                        row.last_error_code = f"copy_http_{copy_response.status_code}"
+                        continue
+                    row.copy_resolution_sent_at = datetime.now(timezone.utc)
+                if row.copy_resolution_json:
+                    row.state = "sent"
+                    row.sent_at = datetime.now(timezone.utc)
+                    row.publish_secret = None
+                    row.claim_capability = None
+                    row.last_error_code = None
+                    sent += 1
+                else:
+                    row.last_error_code = "local_copy_confirmation_required"
             else:
                 row.last_error_code = f"http_{response.status_code}"
     db.commit()
@@ -699,12 +724,37 @@ async def sync_deletion_work_orders(
                 raise HTTPException(status_code=502, detail="Server returned an invalid work-order list")
             applied = 0
             event_deleted = False
+            active_processors = {
+                row.processor_id: row for row in db.query(ProcessorEvidenceKey).filter(
+                    ProcessorEvidenceKey.event_evidence_id == event.evidence_id,
+                    ProcessorEvidenceKey.state == "active",
+                )
+            }
             for work_order in work_orders:
                 if work_order.get("state") not in {"open", "claimed"}:
                     continue
+                processor = active_processors.get(work_order.get("processor_entity_id"))
+                if processor is None or not processor.server_instance_id:
+                    continue
+                claim_document = {
+                    "format": "mp-opt-desktop-work-order-claim-v1",
+                    "instance_id": processor.server_instance_id,
+                    "event_ref": event.evidence_id,
+                    "entity_id": processor.processor_id,
+                    "key_id": processor.key_id,
+                    "role": "processor",
+                    "algorithm": "Ed25519",
+                    "public_key_sha256": processor.public_key_sha256,
+                    "work_order_id": work_order.get("work_order_id"),
+                    "requested_at": datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+                claim_proof = sign_document(
+                    db, identifier=processor.key_id, document=claim_document, kind="desktop_evidence",
+                )
                 claim = await client.post(
                     f"{server_url}/api/v1/publish/deletion-work-orders/{work_order.get('work_order_id')}/claim",
                     headers=headers,
+                    json={"document": claim_document, "proof": claim_proof},
                 )
                 if claim.status_code == 409:
                     continue
@@ -767,6 +817,58 @@ async def retry_deletion_reports(db: Session = Depends(get_db)):
     )
 
 
+@router.post("/deletion-work-orders/{work_order_id}/resolve-local-copies")
+async def resolve_local_desktop_copies(
+    work_order_id: str,
+    body: LocalCopyResolutionRequest,
+    db: Session = Depends(get_db),
+):
+    """Record the one human fact software cannot observe, then sign it locally."""
+
+    if body.disposition not in {"no_known_local_copies", "relevant_local_copies_deleted"}:
+        raise HTTPException(status_code=400, detail="Choose a supported local-copy disposition")
+    if body.confirmation != "LOCAL COPIES RESOLVED":
+        raise HTTPException(status_code=400, detail="Explicit local-copy confirmation is required")
+    row = db.query(DesktopDeletionOutbox).filter(
+        DesktopDeletionOutbox.work_order_id == work_order_id,
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Desktop deletion receipt not found")
+    if row.copy_resolution_json is None:
+        key = db.query(ProcessorEvidenceKey).filter(
+            ProcessorEvidenceKey.event_evidence_id == row.event_ref,
+            ProcessorEvidenceKey.state == "active",
+        ).order_by(ProcessorEvidenceKey.id.desc()).first()
+        if key is None or not key.server_instance_id:
+            raise HTTPException(status_code=409, detail="The event processor key is unavailable")
+        completed_at = datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+        document = {
+            "format": "mp-opt-desktop-copy-resolution-v1",
+            "instance_id": key.server_instance_id,
+            "event_ref": row.event_ref,
+            "entity_id": key.processor_id,
+            "key_id": key.key_id,
+            "role": "processor",
+            "algorithm": "Ed25519",
+            "public_key_sha256": key.public_key_sha256,
+            "work_order_id": row.work_order_id,
+            "disposition": body.disposition,
+            "software_inventory_complete": False,
+            "operator_confirmation": body.confirmation,
+            "completed_at": completed_at,
+        }
+        signed = {"document": document, "proof": sign_document(
+            db, identifier=key.key_id, document=document, kind="desktop_evidence",
+        )}
+        row.copy_resolution_json = json.dumps(signed, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":"))
+        row.copy_resolution_sha256 = hashlib.sha256(
+            json.dumps(document, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        db.commit()
+    result = await _flush_deletion_outbox(db)
+    return {"status": "recorded", "reports_sent": result, "work_order_id": work_order_id}
+
+
 # ── Publish ────────────────────────────────────────────────────────────────
 
 @router.get("/data-policy/{event_id}")
@@ -780,6 +882,8 @@ async def server_data_policy(event_id: int, db: Session = Depends(get_db)):
         acknowledgement
         and acknowledgement.get("policy_version") == policy["version"]
         and acknowledgement.get("policy_sha256") == policy["content_sha256"]
+        and acknowledgement.get("key_id")
+        and acknowledgement.get("document_sha256")
     )
     return {
         "configured": True,
@@ -799,6 +903,7 @@ async def server_data_policy(event_id: int, db: Session = Depends(get_db)):
         "incident_contact": policy.get("incident_contact_email"),
         "acknowledged": acknowledged,
         "operator_subject": acknowledgement.get("operator_subject") if acknowledged else None,
+        "processor_key_id": acknowledgement.get("key_id") if acknowledged else None,
     }
 
 
@@ -820,11 +925,50 @@ async def acknowledge_server_data_policy(
             status_code=409,
             detail="The Server policy changed. Review its current exact version.",
         )
+    event = db.query(Event).filter(Event.id == event_id).first()
+    key = db.query(ProcessorEvidenceKey).filter(
+        ProcessorEvidenceKey.event_evidence_id == event.evidence_id,
+        ProcessorEvidenceKey.state == "active",
+    ).order_by(ProcessorEvidenceKey.id.desc()).first() if event else None
+    if event is None or key is None or not key.server_instance_id:
+        raise HTTPException(
+            status_code=428,
+            detail="Complete event-specific processor-key enrolment and root approval before acknowledgement.",
+        )
+    now = datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+    document = {
+        "format": "mp-opt-desktop-policy-acknowledgement-v1",
+        "instance_id": key.server_instance_id,
+        "event_ref": event.evidence_id,
+        "entity_id": key.processor_id,
+        "key_id": key.key_id,
+        "role": "processor",
+        "algorithm": "Ed25519",
+        "public_key_sha256": key.public_key_sha256,
+        "policy_version": policy["version"],
+        "policy_sha256": policy["content_sha256"],
+        "acknowledged_at": now,
+    }
+    signed = {"document": document, "proof": sign_document(
+        db, identifier=key.key_id, document=document, kind="desktop_evidence",
+    )}
+    _server_url, secret = _get_connection(db, event_id)
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(
+            f"{server_url}/api/v1/publish/processor-policy-acknowledgements",
+            headers={"Authorization": f"Bearer {secret}"}, json=signed,
+        )
+    if response.status_code not in {200, 201}:
+        raise HTTPException(status_code=409, detail=f"Server rejected the signed policy acknowledgement ({response.status_code}).")
+    server_receipt = response.json()
     acknowledgement = {
         "policy_version": policy["version"],
         "policy_sha256": policy["content_sha256"],
         "operator_subject": _desktop_operator_subject(db),
-        "acknowledged_at": datetime.now(timezone.utc).isoformat(),
+        "acknowledged_at": now,
+        "key_id": key.key_id,
+        "document_sha256": server_receipt.get("document_sha256") or hashlib.sha256(canonical_json(document)).hexdigest(),
+        "instance_record_sha256": server_receipt.get("instance_record_sha256"),
     }
     _set_setting(db, _policy_ack_key(event_id), json.dumps(acknowledgement, sort_keys=True))
     db.commit()

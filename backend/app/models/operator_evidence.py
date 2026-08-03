@@ -13,7 +13,7 @@ class ProcessorEvidenceKey(Base):
     __table_args__ = (
         CheckConstraint("role = 'processor'", name="ck_desktop_processor_evidence_role"),
         CheckConstraint(
-            "state IN ('active','retired','private_key_missing')",
+            "state IN ('pending_root_approval','active','revoked','retired','private_key_missing')",
             name="ck_desktop_processor_evidence_state",
         ),
     )
@@ -23,8 +23,12 @@ class ProcessorEvidenceKey(Base):
     public_key = Column(Text, nullable=False)
     public_key_sha256 = Column(String(64), nullable=False, unique=True)
     processor_id = Column(String(64), nullable=False, index=True)
+    local_event_id = Column(Integer, nullable=True, index=True)
+    event_evidence_id = Column(String(36), nullable=False, index=True)
+    display_label = Column(String(128), nullable=True)
+    server_instance_id = Column(String(36), nullable=True, index=True)
     role = Column(String(32), nullable=False, default="processor")
-    state = Column(String(24), nullable=False, default="active")
+    state = Column(String(24), nullable=False, default="pending_root_approval")
     supersedes_key_id = Column(String(19), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     retired_at = Column(DateTime(timezone=True), nullable=True)
