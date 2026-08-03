@@ -223,10 +223,14 @@ def stage_deletion_report(
             Person.evidence_subject_id == subject_ref,
         ).first()
         if person is None:
-            raise ValueError("The deletion work order does not match a local person")
-        counts = _delete_subject(db, event, person)
-        if counts["integration_references"]:
-            outstanding.append("external_integration_copy")
+            # A previously completed local removal is a successful idempotent
+            # outcome. The zero-count report lets Server continue without
+            # requiring an operator to recreate data just to delete it again.
+            counts = {key: 0 for key in REPORT_COUNT_KEYS}
+        else:
+            counts = _delete_subject(db, event, person)
+            if counts["integration_references"]:
+                outstanding.append("external_integration_copy")
     elif operation == "delete_event" and work_order.get("subject_ref") is None:
         counts = _event_counts(db, event.id)
         delete_event_scoped_data(db, event.id)

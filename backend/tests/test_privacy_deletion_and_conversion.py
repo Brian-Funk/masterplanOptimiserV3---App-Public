@@ -169,6 +169,42 @@ def test_pending_report_can_be_retried_after_local_event_erasure(tmp_path, monke
         engine.dispose()
 
 
+def test_subject_erasure_is_idempotent_when_person_is_already_absent(tmp_path, monkeypatch):
+    """Desktop reports a zero-count success instead of blocking an already-finished deletion."""
+
+    monkeypatch.setattr(encryption, "_KEY_PATH", str(tmp_path / "idempotent-encryption.key"))
+    monkeypatch.setattr(encryption, "_fernet", None)
+    engine, db = _session(tmp_path)
+    try:
+        event = Event(name="Current event", start_date=date(2026, 8, 1), end_date=date(2026, 8, 2))
+        db.add(event)
+        db.flush()
+        db.commit()
+
+        row = stage_deletion_report(
+            db,
+            work_order={
+                "version": 1,
+                "work_order_id": str(uuid.uuid4()),
+                "event_ref": event.evidence_id,
+                "subject_ref": str(uuid.uuid4()),
+                "operation": "delete_subject",
+            },
+            claim_capability="one-time-claim",
+            server_url="https://server.example",
+            publish_secret="publish-secret",
+        )
+        db.commit()
+
+        report = json.loads(row.report_json)
+        assert report["outcome"] == "deleted"
+        assert all(value == 0 for value in report["deleted_counts"].values())
+        assert report["outstanding_actions"] == []
+    finally:
+        db.close()
+        engine.dispose()
+
+
 def test_deletion_sync_reports_a_stale_selected_event_as_deleted(tmp_path, monkeypatch):
     """The UI receives an explicit signal instead of retaining a deleted event."""
 
