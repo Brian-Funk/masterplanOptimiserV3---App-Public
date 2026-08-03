@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button, Card, Input, Tooltip } from "@/components/ui";
 import { useEvent } from "@/contexts/EventContext";
+import { useToast } from "@/contexts/ToastContext";
 import {
   mpBackendApi,
   MpBackendSettings,
@@ -22,7 +23,13 @@ import {
 } from "lucide-react";
 
 export function MpBackendSection() {
-  const { selectedEventId, availableEvents } = useEvent();
+  const {
+    selectedEventId,
+    setSelectedEventId,
+    availableEvents,
+    refreshEvents,
+  } = useEvent();
+  const { addToast } = useToast();
   const selectedEvent =
     availableEvents.find((e) => e.id === selectedEventId) || null;
 
@@ -209,6 +216,18 @@ export function MpBackendSection() {
       const result = await mpBackendApi.syncDeletionWorkOrders(
         selectedEventId,
       );
+      if (result.event_deleted) {
+        const eventName = selectedEvent?.name || "The selected event";
+        setSelectedEventId(null);
+        await refreshEvents();
+        addToast(
+          result.reports_pending > 0
+            ? `${eventName} was deleted from this Desktop. Its privacy report is safely queued for retry.`
+            : `${eventName} was deleted from this Desktop and its privacy report was sent.`,
+          result.reports_pending > 0 ? "warning" : "success",
+        );
+        return;
+      }
       setMessage(
         `Deletion requests processed: ${result.applied}; reports sent: ${result.reports_sent}; reports pending: ${result.reports_pending}`,
       );

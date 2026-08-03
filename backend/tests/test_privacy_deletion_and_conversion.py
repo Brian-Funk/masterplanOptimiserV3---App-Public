@@ -169,6 +169,26 @@ def test_pending_report_can_be_retried_after_local_event_erasure(tmp_path, monke
         engine.dispose()
 
 
+def test_deletion_sync_reports_a_stale_selected_event_as_deleted(tmp_path, monkeypatch):
+    """The UI receives an explicit signal instead of retaining a deleted event."""
+
+    mp_backend = _mp_backend_module()
+
+    async def no_pending_reports(_db):
+        return 0
+
+    monkeypatch.setattr(mp_backend, "_flush_deletion_outbox", no_pending_reports)
+    engine, db = _session(tmp_path)
+    try:
+        result = asyncio.run(mp_backend.sync_deletion_work_orders(404, db))
+        assert result.event_deleted is True
+        assert result.applied == 0
+        assert result.reports_pending == 0
+    finally:
+        db.close()
+        engine.dispose()
+
+
 def test_server_policy_bridge_exposes_versioned_privacy_retention_and_features(monkeypatch):
     """Desktop organisers receive the exact Phase 5 policy context."""
 

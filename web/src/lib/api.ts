@@ -2526,6 +2526,7 @@ export interface DeletionWorkOrderSyncResult {
   applied: number;
   reports_sent: number;
   reports_pending: number;
+  event_deleted: boolean;
 }
 
 export interface MpBackendPublishResult {

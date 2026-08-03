@@ -126,6 +126,7 @@ class DeletionWorkOrderSyncResponse(BaseModel):
     applied: int = 0
     reports_sent: int = 0
     reports_pending: int = 0
+    event_deleted: bool = False
 
 
 class GeneralSchedulePublishRequest(BaseModel):
@@ -680,6 +681,7 @@ async def sync_deletion_work_orders(
         return DeletionWorkOrderSyncResponse(
             reports_sent=reports_sent,
             reports_pending=pending,
+            event_deleted=True,
         )
     server_url, secret = _get_connection(db, event_id)
     headers = {"Authorization": f"Bearer {secret}"}
@@ -696,6 +698,7 @@ async def sync_deletion_work_orders(
             if not isinstance(work_orders, list):
                 raise HTTPException(status_code=502, detail="Server returned an invalid work-order list")
             applied = 0
+            event_deleted = False
             for work_order in work_orders:
                 if work_order.get("state") not in {"open", "claimed"}:
                     continue
@@ -726,6 +729,7 @@ async def sync_deletion_work_orders(
                     raise HTTPException(status_code=409, detail=str(exc)) from exc
                 applied += 1
                 if claimed.get("operation") == "delete_event":
+                    event_deleted = True
                     break
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
@@ -742,6 +746,7 @@ async def sync_deletion_work_orders(
         applied=applied,
         reports_sent=reports_sent,
         reports_pending=pending,
+        event_deleted=event_deleted,
     )
 
 
