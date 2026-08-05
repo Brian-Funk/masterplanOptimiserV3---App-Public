@@ -2529,6 +2529,10 @@ export interface DeletionWorkOrderSyncResult {
   event_deleted: boolean;
 }
 
+export interface DeletionWorkOrderStatusResult {
+  pending: number;
+}
+
 export interface MpBackendPublishResult {
   status: string;
   tasks_created: number;
@@ -2691,6 +2695,23 @@ export const mpBackendApi = {
       throw new Error(
         error?.detail ||
           `Failed to process deletion requests: ${response.statusText}`,
+      );
+    }
+    return response.json();
+  },
+
+  /** Check for pending work orders without claiming or applying them. */
+  getDeletionWorkOrderStatus: async (
+    eventId: number,
+  ): Promise<DeletionWorkOrderStatusResult> => {
+    const response = await apiFetch(
+      `${API_BASE}/api/v1/mp-backend/deletion-work-orders/${eventId}/status`,
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(
+        error?.detail ||
+          `Failed to check deletion requests: ${response.statusText}`,
       );
     }
     return response.json();

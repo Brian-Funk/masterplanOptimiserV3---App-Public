@@ -11,6 +11,7 @@ const mockAddToast = vi.hoisted(() => vi.fn());
 const mockMpBackendApi = vi.hoisted(() => ({
   getSettings: vi.fn(),
   getDataPolicy: vi.fn(),
+  getDeletionWorkOrderStatus: vi.fn(),
   syncDeletionWorkOrders: vi.fn(),
 }));
 
@@ -47,6 +48,17 @@ describe("MP-Backend deletion work orders", () => {
       secret_preview: "abc...xyz",
     });
     mockMpBackendApi.getDataPolicy.mockResolvedValue(null);
+    mockMpBackendApi.getDeletionWorkOrderStatus.mockResolvedValue({ pending: 0 });
+  });
+
+  it("warns about pending deletion requests before the operator processes them", async () => {
+    mockMpBackendApi.getDeletionWorkOrderStatus.mockResolvedValue({ pending: 2 });
+
+    render(<MpBackendSection />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("2 deletion requests are waiting");
+    expect(screen.getByRole("button", { name: "Process 2 deletion requests" })).toBeEnabled();
+    expect(mockMpBackendApi.syncDeletionWorkOrders).not.toHaveBeenCalled();
   });
 
   it("clears a deleted event, refreshes the picker, and confirms report delivery", async () => {

@@ -131,6 +131,12 @@ class DeletionWorkOrderSyncResponse(BaseModel):
     event_deleted: bool = False
 
 
+class DeletionWorkOrderStatusResponse(BaseModel):
+    """Non-destructive count of pending Server work orders for one event."""
+
+    pending: int = 0
+
+
 class LocalCopyResolutionRequest(BaseModel):
     disposition: str
     confirmation: str
@@ -847,6 +853,46 @@ async def sync_deletion_work_orders(
         reports_pending=pending,
         event_deleted=event_deleted,
     )
+
+
+@router.get(
+    "/deletion-work-orders/{event_id}/status",
+    response_model=DeletionWorkOrderStatusResponse,
+)
+async def deletion_work_order_status(
+    event_id: int,
+    db: Session = Depends(get_db),
+):
+    """Check for actionable work without claiming or applying any deletion."""
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    server_url, secret = _get_connection(db, event_id)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{server_url}/api/v1/publish/deletion-work-orders",
+                headers={"Authorization": f"Bearer {secret}"},
+            )
+        if response.status_code == 401:
+            raise HTTPException(status_code=401, detail="Server rejected the publish secret")
+        response.raise_for_status()
+        work_orders = response.json()
+        if not isinstance(work_orders, list):
+            raise HTTPException(status_code=502, detail="Server returned an invalid work-order list")
+        pending = sum(
+            1 for item in work_orders
+            if isinstance(item, dict) and item.get("state") in {"open", "claimed"}
+        )
+        return DeletionWorkOrderStatusResponse(pending=pending)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Server work-order status failed ({exc.response.status_code})",
+        ) from exc
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=502, detail="Cannot reach MP-Backend server") from exc
 
 
 @router.post(

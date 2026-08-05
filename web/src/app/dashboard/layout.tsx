@@ -51,6 +51,7 @@ function NavBar() {
   const [calConn, setCalConn] = useState<GoogleCalendarConnection | null>(null);
   const [showCalTooltip, setShowCalTooltip] = useState(false);
   const [mpBackendConfigured, setMpBackendConfigured] = useState(false);
+  const [pendingDeletionRequests, setPendingDeletionRequests] = useState(0);
   const [showMpTooltip, setShowMpTooltip] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -79,6 +80,7 @@ function NavBar() {
   const { addToast } = useToast();
   const switcherRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastDeletionNoticeCount = useRef(0);
 
   const handleCheckIntegrity = useCallback(async () => {
     // @ts-ignore - Electron injects this via preload
@@ -97,6 +99,37 @@ function NavBar() {
 
   const selectedEvent = availableEvents.find((e) => e.id === selectedEventId);
 
+  const refreshMpBackendStatus = useCallback(async () => {
+    if (!selectedEventId) {
+      setMpBackendConfigured(false);
+      setPendingDeletionRequests(0);
+      lastDeletionNoticeCount.current = 0;
+      return;
+    }
+    try {
+      const status = await mpBackendApi.getSettings(selectedEventId);
+      setMpBackendConfigured(status.configured);
+      if (!status.configured) {
+        setPendingDeletionRequests(0);
+        lastDeletionNoticeCount.current = 0;
+        return;
+      }
+      const deletionStatus = await mpBackendApi.getDeletionWorkOrderStatus(selectedEventId);
+      setPendingDeletionRequests(deletionStatus.pending);
+      if (deletionStatus.pending > 0 && lastDeletionNoticeCount.current === 0) {
+        addToast(
+          deletionStatus.pending === 1
+            ? "A Server deletion request is waiting. Open MP-Backend settings to review it."
+            : `${deletionStatus.pending} Server deletion requests are waiting. Open MP-Backend settings to review them.`,
+          "warning",
+        );
+      }
+      lastDeletionNoticeCount.current = deletionStatus.pending;
+    } catch {
+      setPendingDeletionRequests(0);
+    }
+  }, [addToast, selectedEventId]);
+
   useEffect(() => {
     googleCalendarApi
       .getConnections()
@@ -105,15 +138,15 @@ function NavBar() {
         setCalConn(connected || (conns.length > 0 ? conns[0] : null));
       })
       .catch(() => {});
-    if (selectedEventId) {
-      mpBackendApi
-        .getSettings(selectedEventId)
-        .then((status) => setMpBackendConfigured(status.configured))
-        .catch(() => setMpBackendConfigured(false));
-    } else {
-      setMpBackendConfigured(false);
-    }
-  }, [pathname, selectedEventId]);
+    void refreshMpBackendStatus();
+    const timer = window.setInterval(() => void refreshMpBackendStatus(), 30_000);
+    const onFocus = () => void refreshMpBackendStatus();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [pathname, refreshMpBackendStatus]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -374,16 +407,30 @@ function NavBar() {
                   router.push("/dashboard/settings?section=mp-backend")
                 }
                 className={`p-2 rounded-lg transition-colors ${
-                  mpBackendConfigured
+                  pendingDeletionRequests > 0
+                    ? "relative bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300"
+                    : mpBackendConfigured
                     ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30 dark:bg-green-950/30"
                     : "text-foreground-faint hover:text-foreground-muted hover:bg-surface-hover"
                 }`}
+                aria-label={pendingDeletionRequests > 0 ? `${pendingDeletionRequests} pending deletion requests` : "MP-Backend settings"}
               >
                 <Globe className="w-5 h-5" />
+                {pendingDeletionRequests > 0 && (
+                  <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-amber-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                    {pendingDeletionRequests > 99 ? "99+" : pendingDeletionRequests}
+                  </span>
+                )}
               </button>
               {showMpTooltip && (
                 <div className="absolute right-0 top-full mt-1 z-50 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap shadow-lg">
-                  {mpBackendConfigured ? (
+                  {pendingDeletionRequests > 0 ? (
+                    <div className="font-semibold text-amber-300">
+                      {pendingDeletionRequests === 1
+                        ? "1 deletion request is waiting"
+                        : `${pendingDeletionRequests} deletion requests are waiting`}
+                    </div>
+                  ) : mpBackendConfigured ? (
                     <div className="font-semibold text-green-400">
                       MP-Backend configured
                     </div>

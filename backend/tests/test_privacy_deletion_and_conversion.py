@@ -256,6 +256,56 @@ def test_deletion_sync_reports_a_stale_selected_event_as_deleted(tmp_path, monke
         engine.dispose()
 
 
+def test_pending_deletion_status_is_visible_without_claiming_work(tmp_path, monkeypatch):
+    """The Desktop can notify the operator without applying a deletion."""
+
+    mp_backend = _mp_backend_module()
+    engine, db = _session(tmp_path)
+    try:
+        event = Event(name="Pending deletion status")
+        db.add(event)
+        db.commit()
+        monkeypatch.setattr(
+            mp_backend,
+            "_get_connection",
+            lambda _db, _event_id: ("https://server.synthetic", "secret"),
+        )
+
+        class Response:
+            status_code = 200
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return [
+                    {"work_order_id": "open", "state": "open"},
+                    {"work_order_id": "claimed", "state": "claimed"},
+                    {"work_order_id": "complete", "state": "report_received"},
+                    "invalid-entry",
+                ]
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get(self, *_args, **_kwargs):
+                return Response()
+
+        monkeypatch.setattr(mp_backend.httpx, "AsyncClient", lambda **_kwargs: Client())
+        result = asyncio.run(mp_backend.deletion_work_order_status(event.id, db))
+
+        assert result.pending == 2
+        assert db.query(DesktopDeletionOutbox).count() == 0
+        assert db.query(Person).count() == 0
+    finally:
+        db.close()
+        engine.dispose()
+
+
 def test_server_policy_bridge_exposes_versioned_privacy_retention_and_features(monkeypatch):
     """Desktop organisers receive the exact Phase 5 policy context."""
 
