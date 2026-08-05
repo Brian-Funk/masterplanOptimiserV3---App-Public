@@ -195,6 +195,14 @@ def _policy_ack_key(event_id: int) -> str:
     return f"mp_backend_policy_ack:{event_id}"
 
 
+def _pending_policy_ack_key(event_id: int) -> str:
+    return f"mp_backend_policy_ack_pending:{event_id}"
+
+
+def _delete_setting(db: Session, key: str) -> None:
+    db.query(AppSettings).filter(AppSettings.key == key).delete(synchronize_session=False)
+
+
 def _desktop_operator_subject(db: Session) -> str:
     """Return a local pseudonym without claiming an authenticated human identity."""
     return local_operator_subject(db)
@@ -234,19 +242,60 @@ def _stored_policy_acknowledgement(db: Session, event_id: int) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+async def _server_policy_acknowledgement(
+    server_url: str, secret: str,
+) -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{server_url}/api/v1/publish/processor-policy-acknowledgements/current",
+                headers={"Authorization": f"Bearer {secret}"},
+            )
+        response.raise_for_status()
+        value = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Cannot verify the Server acknowledgement receipt",
+        ) from exc
+    if not isinstance(value, dict) or not isinstance(value.get("acknowledged"), bool):
+        raise HTTPException(status_code=502, detail="The Server acknowledgement status is invalid")
+    return value
+
+
+async def _authoritative_policy_acknowledgement(
+    db: Session, event_id: int, server_url: str, secret: str, policy: dict,
+) -> dict | None:
+    local = _stored_policy_acknowledgement(db, event_id)
+    if not local or (
+        local.get("policy_version") != policy["version"]
+        or local.get("policy_sha256") != policy["content_sha256"]
+        or not local.get("key_id")
+        or not local.get("document_sha256")
+    ):
+        return None
+    remote = await _server_policy_acknowledgement(server_url, secret)
+    if not remote.get("acknowledged") or any((
+        remote.get("policy_version") != local["policy_version"],
+        remote.get("policy_sha256") != local["policy_sha256"],
+        remote.get("key_id") != local["key_id"],
+        remote.get("document_sha256") != local["document_sha256"],
+    )):
+        return None
+    return local
+
+
 async def _require_current_policy_acknowledgement(
     db: Session,
     event_id: int,
     server_url: str,
+    secret: str,
 ) -> dict:
     policy = await _current_server_policy(server_url)
-    acknowledgement = _stored_policy_acknowledgement(db, event_id)
-    if not acknowledgement or (
-        acknowledgement.get("policy_version") != policy["version"]
-        or acknowledgement.get("policy_sha256") != policy["content_sha256"]
-        or not acknowledgement.get("key_id")
-        or not acknowledgement.get("document_sha256")
-    ):
+    acknowledgement = await _authoritative_policy_acknowledgement(
+        db, event_id, server_url, secret, policy,
+    )
+    if acknowledgement is None:
         raise HTTPException(
             status_code=428,
             detail={
@@ -875,16 +924,12 @@ async def resolve_local_desktop_copies(
 async def server_data_policy(event_id: int, db: Session = Depends(get_db)):
     """Return the current exact Server policy and local pseudonymous ack state."""
 
-    server_url, _secret = _get_connection(db, event_id)
+    server_url, secret = _get_connection(db, event_id)
     policy = await _current_server_policy(server_url)
-    acknowledgement = _stored_policy_acknowledgement(db, event_id)
-    acknowledged = bool(
-        acknowledgement
-        and acknowledgement.get("policy_version") == policy["version"]
-        and acknowledgement.get("policy_sha256") == policy["content_sha256"]
-        and acknowledgement.get("key_id")
-        and acknowledgement.get("document_sha256")
+    acknowledgement = await _authoritative_policy_acknowledgement(
+        db, event_id, server_url, secret, policy,
     )
+    acknowledged = acknowledgement is not None
     return {
         "configured": True,
         "policy_version": policy["version"],
@@ -935,29 +980,47 @@ async def acknowledge_server_data_policy(
             status_code=428,
             detail="Complete event-specific processor-key enrolment and root approval before acknowledgement.",
         )
-    now = datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
-    document = {
-        "format": "mp-opt-desktop-policy-acknowledgement-v1",
-        "instance_id": key.server_instance_id,
-        "event_ref": event.evidence_id,
-        "entity_id": key.processor_id,
-        "key_id": key.key_id,
-        "role": "processor",
-        "algorithm": "Ed25519",
-        "public_key_sha256": key.public_key_sha256,
-        "policy_version": policy["version"],
-        "policy_sha256": policy["content_sha256"],
-        "acknowledged_at": now,
-    }
-    signed = {"document": document, "proof": sign_document(
-        db, identifier=key.key_id, document=document, kind="desktop_evidence",
-    )}
+    pending_raw = _get_setting(db, _pending_policy_ack_key(event_id))
+    try:
+        pending = json.loads(pending_raw) if pending_raw else None
+    except (TypeError, ValueError):
+        pending = None
+    if not isinstance(pending, dict) or not isinstance(pending.get("document"), dict) or any((
+        pending["document"].get("policy_version") != policy["version"],
+        pending["document"].get("policy_sha256") != policy["content_sha256"],
+        pending["document"].get("key_id") != key.key_id,
+        pending["document"].get("event_ref") != event.evidence_id,
+    )):
+        now = datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+        document = {
+            "format": "mp-opt-desktop-policy-acknowledgement-v1",
+            "instance_id": key.server_instance_id,
+            "event_ref": event.evidence_id,
+            "entity_id": key.processor_id,
+            "key_id": key.key_id,
+            "role": "processor",
+            "algorithm": "Ed25519",
+            "public_key_sha256": key.public_key_sha256,
+            "policy_version": policy["version"],
+            "policy_sha256": policy["content_sha256"],
+            "acknowledged_at": now,
+        }
+        pending = {"document": document, "proof": sign_document(
+            db, identifier=key.key_id, document=document, kind="desktop_evidence",
+        )}
+        _set_setting(db, _pending_policy_ack_key(event_id), json.dumps(pending, sort_keys=True))
+        db.commit()
+    document = pending["document"]
+    now = document["acknowledged_at"]
     _server_url, secret = _get_connection(db, event_id)
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(
-            f"{server_url}/api/v1/publish/processor-policy-acknowledgements",
-            headers={"Authorization": f"Bearer {secret}"}, json=signed,
-        )
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
+                f"{server_url}/api/v1/publish/processor-policy-acknowledgements",
+                headers={"Authorization": f"Bearer {secret}"}, json=pending,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Cannot reach the Server to record the acknowledgement") from exc
     if response.status_code not in {200, 201}:
         raise HTTPException(status_code=409, detail=f"Server rejected the signed policy acknowledgement ({response.status_code}).")
     server_receipt = response.json()
@@ -969,8 +1032,10 @@ async def acknowledge_server_data_policy(
         "key_id": key.key_id,
         "document_sha256": server_receipt.get("document_sha256") or hashlib.sha256(canonical_json(document)).hexdigest(),
         "instance_record_sha256": server_receipt.get("instance_record_sha256"),
+        "evidence_package_sha256": server_receipt.get("evidence_package_sha256"),
     }
     _set_setting(db, _policy_ack_key(event_id), json.dumps(acknowledgement, sort_keys=True))
+    _delete_setting(db, _pending_policy_ack_key(event_id))
     db.commit()
     return {"acknowledged": True, **acknowledgement}
 
@@ -996,7 +1061,7 @@ async def publish_to_mp_backend(
     working_day_offset_hour = max(0, schedule_day_range["end_hour"] - 24)
 
     requested_dates = _normalise_publish_dates(payload.dates if payload else None)
-    await _require_current_policy_acknowledgement(db, event_id, server_url)
+    await _require_current_policy_acknowledgement(db, event_id, server_url, secret)
     if requested_dates is not None:
         await _ensure_scoped_publish_supported(server_url, secret)
 

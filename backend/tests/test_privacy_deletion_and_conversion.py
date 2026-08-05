@@ -292,6 +292,119 @@ def test_server_policy_bridge_exposes_versioned_privacy_retention_and_features(m
     assert result["incident_contact"] == "incident@synthetic-controller.ch"
 
 
+def test_server_policy_bridge_rejects_a_stale_local_acknowledgement(monkeypatch):
+    """A local receipt cannot enable publishing after the Server loses the row."""
+
+    mp_backend = _mp_backend_module()
+    local = {
+        "policy_version": 3,
+        "policy_sha256": "a" * 64,
+        "key_id": "ek-0123456789abcdef",
+        "document_sha256": "b" * 64,
+        "operator_subject": "desktop-synthetic",
+    }
+    monkeypatch.setattr(
+        mp_backend, "_get_connection",
+        lambda _db, _event_id: ("https://server.synthetic", "secret"),
+    )
+    monkeypatch.setattr(mp_backend, "_stored_policy_acknowledgement", lambda _db, _event_id: local)
+
+    async def policy(_server_url):
+        return {
+            "version": 3,
+            "content_sha256": "a" * 64,
+            "permitted_data": {"purpose": "Scheduling", "allowed": [], "unsupported": []},
+            "retention": {},
+            "feature_disclosures": [],
+        }
+
+    async def missing(_server_url, _secret):
+        return {"acknowledged": False, "policy_version": 3, "policy_sha256": "a" * 64}
+
+    monkeypatch.setattr(mp_backend, "_current_server_policy", policy)
+    monkeypatch.setattr(mp_backend, "_server_policy_acknowledgement", missing)
+    result = asyncio.run(mp_backend.server_data_policy(7, db=None))
+    assert result["acknowledged"] is False
+    assert result["operator_subject"] is None
+    assert result["processor_key_id"] is None
+
+
+def test_policy_acknowledgement_retries_the_exact_persisted_signature(tmp_path, monkeypatch):
+    """An uncertain network result never creates a different signed action."""
+
+    mp_backend = _mp_backend_module()
+    engine, db = _session(tmp_path)
+    try:
+        event = Event(
+            name="Synthetic retry", start_date=date(2026, 8, 5), end_date=date(2026, 8, 6),
+            mp_backend_url="https://server.synthetic",
+        )
+        db.add(event)
+        db.flush()
+        _activate_processor(db, event, monkeypatch)
+        db.commit()
+        monkeypatch.setattr(
+            mp_backend, "_get_connection",
+            lambda _db, _event_id: ("https://server.synthetic", "secret"),
+        )
+
+        async def policy(_server_url):
+            return {"version": 3, "content_sha256": "a" * 64}
+
+        monkeypatch.setattr(mp_backend, "_current_server_policy", policy)
+        submitted = []
+
+        class Client:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def post(self, _url, *, headers, json):
+                assert headers["Authorization"] == "Bearer secret"
+                submitted.append(json)
+                if len(submitted) == 1:
+                    raise mp_backend.httpx.ConnectError("synthetic disconnect")
+
+                class Response:
+                    status_code = 201
+
+                    @staticmethod
+                    def json():
+                        return {
+                            "document_sha256": "b" * 64,
+                            "instance_record_sha256": "c" * 64,
+                            "evidence_package_sha256": "d" * 64,
+                        }
+
+                return Response()
+
+        monkeypatch.setattr(mp_backend.httpx, "AsyncClient", Client)
+        body = mp_backend.DataPolicyAcknowledgementRequest(
+            policy_version=3, policy_sha256="a" * 64,
+        )
+        try:
+            asyncio.run(mp_backend.acknowledge_server_data_policy(event.id, body, db))
+        except mp_backend.HTTPException as exc:
+            assert exc.status_code == 502
+        else:
+            raise AssertionError("the synthetic network failure was accepted")
+        pending = mp_backend._get_setting(db, mp_backend._pending_policy_ack_key(event.id))
+        assert pending
+
+        result = asyncio.run(mp_backend.acknowledge_server_data_policy(event.id, body, db))
+        assert result["acknowledged"] is True
+        assert submitted[0] == submitted[1]
+        assert mp_backend._get_setting(db, mp_backend._pending_policy_ack_key(event.id)) is None
+    finally:
+        db.close()
+        engine.dispose()
+
+
 def test_one_off_converter_preserves_archive_and_maps_only_typed_fields(tmp_path):
     converter = _converter_module()
     source_path = tmp_path / "source.db"
