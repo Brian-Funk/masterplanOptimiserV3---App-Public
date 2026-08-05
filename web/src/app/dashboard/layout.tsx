@@ -25,7 +25,6 @@ import {
   appSettingsApi,
   eventsApi,
   dataManagementApi,
-  mpBackendApi,
 } from "@/lib/api";
 import type { ImportValidationResult } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
@@ -36,8 +35,9 @@ import { SwissDateInput } from "@/components/ui/SwissDateInput";
 import { useToast } from "@/contexts/ToastContext";
 import { Spinner } from "@/components/ui/Spinner";
 import { buildInvalidJsonImportValidation } from "@/lib/importPreview";
+import { usePendingDeletionWork } from "@/contexts/PendingDeletionWorkContext";
 
-export function NavBar() {
+function NavBar() {
   const router = useRouter();
   const pathname = usePathname();
   const isSettings = pathname?.startsWith("/dashboard/settings");
@@ -50,8 +50,10 @@ export function NavBar() {
 
   const [calConn, setCalConn] = useState<GoogleCalendarConnection | null>(null);
   const [showCalTooltip, setShowCalTooltip] = useState(false);
-  const [mpBackendConfigured, setMpBackendConfigured] = useState(false);
-  const [pendingDeletionRequests, setPendingDeletionRequests] = useState(0);
+  const {
+    configured: mpBackendConfigured,
+    pending: pendingDeletionRequests,
+  } = usePendingDeletionWork();
   const [showMpTooltip, setShowMpTooltip] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -80,7 +82,6 @@ export function NavBar() {
   const { addToast } = useToast();
   const switcherRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastDeletionNoticeCount = useRef(0);
 
   const handleCheckIntegrity = useCallback(async () => {
     // @ts-ignore - Electron injects this via preload
@@ -99,40 +100,6 @@ export function NavBar() {
 
   const selectedEvent = availableEvents.find((e) => e.id === selectedEventId);
 
-  const refreshMpBackendStatus = useCallback(async () => {
-    if (availableEvents.length === 0) {
-      setMpBackendConfigured(false);
-      setPendingDeletionRequests(0);
-      lastDeletionNoticeCount.current = 0;
-      return;
-    }
-    const results = await Promise.all(
-      availableEvents.map(async (event) => {
-        try {
-          const status = await mpBackendApi.getSettings(event.id);
-          if (!status.configured) return { configured: false, pending: 0 };
-          const deletionStatus = await mpBackendApi.getDeletionWorkOrderStatus(event.id);
-          return { configured: true, pending: deletionStatus.pending };
-        } catch {
-          return { configured: false, pending: 0 };
-        }
-      }),
-    );
-    const configured = results.some((result) => result.configured);
-    const pending = results.reduce((total, result) => total + result.pending, 0);
-    setMpBackendConfigured(configured);
-    setPendingDeletionRequests(pending);
-    if (pending > 0 && lastDeletionNoticeCount.current === 0) {
-        addToast(
-          pending === 1
-            ? "A Server deletion request is waiting. Open MP-Backend settings to review it."
-            : `${pending} Server deletion requests are waiting. Open MP-Backend settings to review them.`,
-          "warning",
-        );
-    }
-    lastDeletionNoticeCount.current = pending;
-  }, [addToast, availableEvents]);
-
   useEffect(() => {
     googleCalendarApi
       .getConnections()
@@ -141,15 +108,7 @@ export function NavBar() {
         setCalConn(connected || (conns.length > 0 ? conns[0] : null));
       })
       .catch(() => {});
-    void refreshMpBackendStatus();
-    const timer = window.setInterval(() => void refreshMpBackendStatus(), 30_000);
-    const onFocus = () => void refreshMpBackendStatus();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [pathname, refreshMpBackendStatus]);
+  }, [pathname]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -474,24 +433,6 @@ export function NavBar() {
           </div>
         </div>
       </div>
-
-      {pendingDeletionRequests > 0 && (
-        <div
-          role="status"
-          className="border-t border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200"
-        >
-          <button
-            type="button"
-            onClick={() => router.push("/dashboard/settings?section=mp-backend")}
-            className="flex w-full items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors hover:bg-amber-100 dark:hover:bg-amber-950/60"
-          >
-            <ShieldAlert className="h-4 w-4 shrink-0" />
-            {pendingDeletionRequests === 1
-              ? "A Server deletion request is waiting. Review it in MP-Backend settings."
-              : `${pendingDeletionRequests} Server deletion requests are waiting. Review them in MP-Backend settings.`}
-          </button>
-        </div>
-      )}
 
       <input
         ref={fileInputRef}

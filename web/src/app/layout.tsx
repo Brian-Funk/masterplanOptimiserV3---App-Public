@@ -8,6 +8,10 @@ import { GlobalShortcuts } from "@/components/GlobalShortcuts";
 import { LogDumpErrorBoundary } from "@/components/LogDumpErrorBoundary";
 import { RendererErrorReporter } from "@/components/RendererErrorReporter";
 import { ToastContainer } from "@/components/ui/ToastContainer";
+import {
+  GlobalPendingDeletionWorkBanner,
+  PendingDeletionWorkProvider,
+} from "@/contexts/PendingDeletionWorkContext";
 import { useEffect } from "react";
 import { getApiUrl } from "@/lib/environment";
 
@@ -60,12 +64,15 @@ export default function RootLayout({
         <ThemeProvider>
           <ShortcutProvider>
             <ToastProvider>
-              <RendererErrorReporter />
-              <LogDumpErrorBoundary>
-                <GlobalShortcuts />
-                {children}
-                <ToastContainer />
-              </LogDumpErrorBoundary>
+              <PendingDeletionWorkProvider>
+                <RendererErrorReporter />
+                <LogDumpErrorBoundary>
+                  <GlobalShortcuts />
+                  <GlobalPendingDeletionWorkBanner />
+                  {children}
+                  <ToastContainer />
+                </LogDumpErrorBoundary>
+              </PendingDeletionWorkProvider>
             </ToastProvider>
           </ShortcutProvider>
         </ThemeProvider>
