@@ -106,6 +106,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | @csstools/css-color-parser | 3.1.0 | MIT | `web/package-lock.json` |
 | @csstools/css-parser-algorithms | 3.0.5 | MIT | `web/package-lock.json` |
 | @csstools/css-tokenizer | 3.0.4 | MIT | `web/package-lock.json` |
+| @electron-internal/extract-zip | 1.0.5 | BSD-2-Clause | `desktop/package-lock.json` |
 | @electron/asar | 3.4.1 | MIT | `desktop/package-lock.json` |
 | @electron/fuses | 1.8.0 | MIT | `desktop/package-lock.json` |
 | @electron/get | 3.1.0 | MIT | `desktop/package-lock.json` |
@@ -228,7 +229,6 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | @types/react-grid-layout | 1.3.6 | MIT | `web/package-lock.json` |
 | @types/responselike | 1.0.3 | MIT | `desktop/package-lock.json` |
 | @types/unist | 3.0.3 | MIT | `web/package-lock.json` |
-| @types/yauzl | 2.10.3 | MIT | `desktop/package-lock.json` |
 | @vitejs/plugin-react | 6.0.1 | MIT | `web/package-lock.json` |
 | @vitest/expect | 4.1.10 | MIT | `web/package-lock.json` |
 | @vitest/mocker | 4.1.10 | MIT | `web/package-lock.json` |
@@ -271,13 +271,12 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | binary-extensions | 2.3.0 | MIT | `web/package-lock.json` |
 | bluebird | 3.7.2 | MIT | `desktop/package-lock.json` |
 | boolean | 3.2.0 | MIT | `desktop/package-lock.json` |
-| brace-expansion | 1.1.17 | MIT | `desktop/package-lock.json` |
-| brace-expansion | 2.1.3 | MIT | `desktop/package-lock.json` |
-| brace-expansion | 5.0.8 | MIT | `desktop/package-lock.json` |
+| brace-expansion | 1.1.18 | MIT | `desktop/package-lock.json` |
+| brace-expansion | 2.1.4 | MIT | `desktop/package-lock.json` |
+| brace-expansion | 5.0.9 | MIT | `desktop/package-lock.json` |
 | brace-expansion | 5.0.9 | MIT | `web/package-lock.json` |
 | braces | 3.0.3 | MIT | `web/package-lock.json` |
 | browserslist | 4.28.0 | MIT | `web/package-lock.json` |
-| buffer-crc32 | 0.2.13 | MIT | `desktop/package-lock.json` |
 | buffer-from | 1.1.2 | MIT | `desktop/package-lock.json` |
 | builder-util | 26.15.3 | MIT | `desktop/package-lock.json` |
 | builder-util-runtime | 9.7.0 | MIT | `desktop/package-lock.json` |
@@ -345,7 +344,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | dunder-proto | 1.0.1 | MIT | `web/package-lock.json` |
 | duplexer2 | 0.1.4 | BSD-3-Clause | `desktop/package-lock.json` |
 | ejs | 3.1.10 | Apache-2.0 | `desktop/package-lock.json` |
-| electron | 42.0.1 | MIT | `desktop/package-lock.json` |
+| electron | 42.8.1 | MIT | `desktop/package-lock.json` |
 | electron-builder | 26.15.3 | MIT | `desktop/package-lock.json` |
 | electron-builder-squirrel-windows | 26.15.3 | MIT | `desktop/package-lock.json` |
 | electron-publish | 26.15.3 | MIT | `desktop/package-lock.json` |
@@ -374,13 +373,11 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | estree-walker | 3.0.3 | MIT | `web/package-lock.json` |
 | expect-type | 1.4.0 | Apache-2.0 | `web/package-lock.json` |
 | exponential-backoff | 3.1.3 | Apache-2.0 | `desktop/package-lock.json` |
-| extract-zip | 2.0.1 | BSD-2-Clause | `desktop/package-lock.json` |
 | fast-deep-equal | 3.1.3 | MIT | `desktop/package-lock.json` |
 | fast-equals | 4.0.3 | MIT | `web/package-lock.json` |
 | fast-glob | 3.3.3 | MIT | `web/package-lock.json` |
-| fast-uri | 3.1.4 | BSD-3-Clause | `desktop/package-lock.json` |
+| fast-uri | 3.1.5 | BSD-3-Clause | `desktop/package-lock.json` |
 | fastq | 1.19.1 | ISC | `web/package-lock.json` |
-| fd-slicer | 1.1.0 | MIT | `desktop/package-lock.json` |
 | fdir | 6.5.0 | MIT | `desktop/package-lock.json` |
 | fdir | 6.5.0 | MIT | `web/package-lock.json` |
 | filelist | 1.0.6 | Apache-2.0 | `desktop/package-lock.json` |
@@ -451,7 +448,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | jiti | 1.21.7 | MIT | `web/package-lock.json` |
 | jiti | 2.7.0 | MIT | `desktop/package-lock.json` |
 | js-tokens | 4.0.0 | MIT | `web/package-lock.json` |
-| js-yaml | 4.3.0 | MIT | `desktop/package-lock.json` |
+| js-yaml | 4.3.1 | MIT | `desktop/package-lock.json` |
 | jsdom | 25.0.1 | MIT | `web/package-lock.json` |
 | json-buffer | 3.0.1 | MIT | `desktop/package-lock.json` |
 | json-schema-traverse | 1.0.0 | MIT | `desktop/package-lock.json` |
@@ -538,7 +535,6 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | path-parse | 1.0.7 | MIT | `web/package-lock.json` |
 | pathe | 2.0.3 | MIT | `web/package-lock.json` |
 | pe-library | 0.4.1 | MIT | `desktop/package-lock.json` |
-| pend | 1.2.0 | MIT | `desktop/package-lock.json` |
 | picocolors | 1.1.1 | ISC | `desktop/package-lock.json` |
 | picocolors | 1.1.1 | ISC | `web/package-lock.json` |
 | picomatch | 2.3.2 | MIT | `web/package-lock.json` |
@@ -665,7 +661,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | typescript | 5.9.3 | Apache-2.0 | `web/package-lock.json` |
 | uc.micro | 2.1.0 | MIT | `web/package-lock.json` |
 | undici | 6.28.0 | MIT | `desktop/package-lock.json` |
-| undici | 7.28.0 | MIT | `desktop/package-lock.json` |
+| undici | 7.29.0 | MIT | `desktop/package-lock.json` |
 | undici-types | 6.21.0 | MIT | `web/package-lock.json` |
 | undici-types | 7.16.0 | MIT | `desktop/package-lock.json` |
 | universalify | 0.1.2 | MIT | `desktop/package-lock.json` |
@@ -699,7 +695,6 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | yaml | 2.9.0 | ISC | `web/package-lock.json` |
 | yargs | 17.7.2 | MIT | `desktop/package-lock.json` |
 | yargs-parser | 21.1.1 | ISC | `desktop/package-lock.json` |
-| yauzl | 2.10.0 | MIT | `desktop/package-lock.json` |
 | yocto-queue | 0.1.0 | MIT | `desktop/package-lock.json` |
 
 ## Images, runtimes and bundled assets
