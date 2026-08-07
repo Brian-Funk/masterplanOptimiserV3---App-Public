@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- Keep Desktop processor identities scoped to their exact Server event when a
+  reusable local event is linked to a different Server event. Historical keys
+  remain available for verification but no longer appear ready for the new
+  event.
+
 ### Added
 
 - Show a persistent, non-destructive pending-deletion warning across the

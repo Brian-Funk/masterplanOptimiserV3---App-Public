@@ -85,9 +85,21 @@ def _reject(exc: Exception) -> HTTPException:
 
 
 @router.get("/keys")
-def list_local_processor_keys(db: Session = Depends(get_db)):
+def list_local_processor_keys(
+    event_id: int | None = None,
+    db: Session = Depends(get_db),
+):
     """List processor public metadata without reading private key bytes."""
-    return [_public(row) for row in db.query(ProcessorEvidenceKey).order_by(ProcessorEvidenceKey.id).all()]
+    query = db.query(ProcessorEvidenceKey)
+    if event_id is not None:
+        event = db.query(Event).filter(Event.id == event_id).first()
+        if event is None:
+            raise HTTPException(status_code=404, detail="The local event does not exist.")
+        query = query.filter(
+            ProcessorEvidenceKey.local_event_id == event.id,
+            ProcessorEvidenceKey.event_evidence_id == event.evidence_id,
+        )
+    return [_public(row) for row in query.order_by(ProcessorEvidenceKey.id).all()]
 
 
 @router.post("/keys")
@@ -195,11 +207,19 @@ async def refresh_processor_key_status(event_id: int, db: Session = Depends(get_
         if response.status_code != 200:
             raise ProcessorEvidenceError(f"Server key status is unavailable ({response.status_code}).")
         status = response.json()
+        if status.get("event_ref") != event.evidence_id:
+            raise ProcessorEvidenceError(
+                "The Server event identity changed. Test the Server connection before configuring its processor key."
+            )
         active = {item["active_key_id"] for item in status.get("processors", []) if item.get("status") == "active"}
-        for row in db.query(ProcessorEvidenceKey).filter(ProcessorEvidenceKey.event_evidence_id == event.evidence_id):
+        event_keys = db.query(ProcessorEvidenceKey).filter(
+            ProcessorEvidenceKey.local_event_id == event.id,
+            ProcessorEvidenceKey.event_evidence_id == event.evidence_id,
+        )
+        for row in event_keys:
             if row.key_id in active: row.state = "active"
         db.commit()
-        return {"status": status, "keys": [_public(row) for row in db.query(ProcessorEvidenceKey).filter(ProcessorEvidenceKey.event_evidence_id == event.evidence_id)]}
+        return {"status": status, "keys": [_public(row) for row in event_keys]}
     except (ProcessorEvidenceError, RuntimeError, ValueError, httpx.HTTPError) as exc:
         db.rollback(); raise _reject(exc) from exc
 

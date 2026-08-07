@@ -2817,8 +2817,9 @@ export interface ProcessorEvidenceProof {
 /** Local-only processor-key generation and signing operations. */
 export const processorEvidenceApi = {
   /** List public metadata without reading or returning private key material. */
-  listKeys: async (): Promise<ProcessorEvidenceKey[]> => {
-    const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/keys`);
+  listKeys: async (eventId?: number): Promise<ProcessorEvidenceKey[]> => {
+    const query = eventId === undefined ? "" : `?event_id=${encodeURIComponent(eventId)}`;
+    const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/keys${query}`);
     if (!response.ok) throw new Error("Failed to load local processor keys");
     return response.json();
   },

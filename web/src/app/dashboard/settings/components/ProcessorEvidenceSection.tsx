@@ -21,16 +21,21 @@ export function ProcessorEvidenceSection() {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
 
-  const eventKeys = useMemo(
-    () => keys.filter((key) => key.local_event_id === selectedEventId),
-    [keys, selectedEventId],
-  );
+  const eventKeys = useMemo(() => keys, [keys]);
   const current = eventKeys.find((key) => key.state === "active")
     || eventKeys.find((key) => key.state === "pending_root_approval")
     || null;
 
-  const load = async () => setKeys(await processorEvidenceApi.listKeys());
-  useEffect(() => { void load().catch((error) => setMessage(`Error: ${String(error)}`)); }, []);
+  const load = async () => {
+    if (!selectedEventId) { setKeys([]); return; }
+    setKeys(await processorEvidenceApi.listKeys(selectedEventId));
+  };
+  useEffect(() => {
+    setKeys([]);
+    void load().catch((error) => setMessage(`Error: ${String(error)}`));
+    // The selected event is the scope boundary for local processor custody.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventId]);
 
   async function run(name: string, operation: () => Promise<void>) {
     setBusy(name); setMessage("");

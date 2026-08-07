@@ -8,6 +8,7 @@ import hashlib
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -17,7 +18,13 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
-from app.api.v1.operator_evidence import GenerateProcessorKeyRequest
+from app.api.v1 import mp_backend as mp_backend_api
+from app.api.v1 import operator_evidence as operator_evidence_api
+from app.api.v1.operator_evidence import (
+    GenerateProcessorKeyRequest,
+    list_local_processor_keys,
+    refresh_processor_key_status,
+)
 from app.core.operator_evidence import (
     TRUST_NAMESPACE,
     DESKTOP_EVIDENCE_NAMESPACE,
@@ -32,6 +39,7 @@ from app.core.operator_evidence import (
 )
 from app.core.secure_credentials import set_credential_store_for_tests
 from app.db.database import Base
+from app.models.event import Event
 
 
 PROCESSOR_ID = "prc-synthetic0001"
@@ -119,6 +127,75 @@ def test_processor_key_only_enters_os_store_and_public_metadata(custody_db):
     raw = db.execute(text("SELECT processor_id, role, public_key FROM processor_evidence_keys")).one()
     assert raw[0:2] == (PROCESSOR_ID, "processor")
     assert "PRIVATE" not in raw[2]
+
+
+def test_event_key_listing_excludes_key_from_previous_server_event(custody_db):
+    db, _store, _engine = custody_db
+    event = Event(
+        name="Reusable synthetic event",
+        location="Test location",
+        start_date=datetime.now(timezone.utc).date(),
+        end_date=datetime.now(timezone.utc).date(),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    previous_event_ref = event.evidence_id
+    row = generate_key(
+        db,
+        processor_id=PROCESSOR_ID,
+        event_evidence_id=previous_event_ref,
+    )
+    row.local_event_id = event.id
+    row.state = "active"
+    db.commit()
+
+    assert [item["key_id"] for item in list_local_processor_keys(event.id, db)] == [row.key_id]
+
+    event.evidence_id = str(uuid.uuid4())
+    db.commit()
+
+    assert list_local_processor_keys(event.id, db) == []
+    assert db.query(type(row)).filter_by(key_id=row.key_id).one().state == "active"
+
+
+@pytest.mark.asyncio
+async def test_status_refresh_rejects_a_different_server_event_identity(
+    custody_db,
+    monkeypatch,
+):
+    db, _store, _engine = custody_db
+    event = Event(
+        name="Synthetic event",
+        location="Test location",
+        start_date=datetime.now(timezone.utc).date(),
+        end_date=datetime.now(timezone.utc).date(),
+        mp_backend_url="https://server.example",
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"event_ref": str(uuid.uuid4()), "processors": [], "pending": []}
+
+    class Client:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_args): return None
+        async def get(self, *_args, **_kwargs): return Response()
+
+    monkeypatch.setattr(operator_evidence_api.httpx, "AsyncClient", lambda **_kwargs: Client())
+    monkeypatch.setattr(mp_backend_api, "_resolve_mp_backend_secret", lambda *_args: "synthetic-secret")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await refresh_processor_key_status(event.id, db)
+
+    assert exc_info.value.status_code == 409
+    assert "Server event identity changed" in exc_info.value.detail["message"]
 
 
 def test_desktop_schema_rejects_every_non_processor_role_and_private_input():
