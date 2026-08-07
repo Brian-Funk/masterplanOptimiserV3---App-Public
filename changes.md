@@ -8,6 +8,9 @@
   reusable local event is linked to a different Server event. Historical keys
   remain available for verification but no longer appear ready for the new
   event.
+- Replace the obsolete Desktop dependency-audit exception with patched
+  Electron and transitive security floors, and fail closed for every future
+  npm advisory.
 
 ### Added
 
