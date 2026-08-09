@@ -6,7 +6,6 @@ import {
   generalScheduleApi,
   type AudienceTeam,
 } from "@/lib/api";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 
 type AudienceTeamsContentProps = {
   selectedEvent: any;
@@ -254,7 +253,6 @@ export function AudienceTeamsContent({ selectedEvent }: AudienceTeamsContentProp
                 </div>
 
                 <div>
-                  <PermittedDataInputNotice eventId={eventId} />
                   <label className="mb-1 block text-sm font-medium text-foreground-secondary">
                     Internal organiser operational audience-team description
                   </label>
@@ -274,7 +272,6 @@ export function AudienceTeamsContent({ selectedEvent }: AudienceTeamsContentProp
                       placeholder="Optional description"
                     />
                   )}
-                  <p className="mt-1 text-xs text-foreground-muted">Organisers only. Describe the team's scheduling purpose, not its members.</p>
                 </div>
 
                 {validationMessage && (

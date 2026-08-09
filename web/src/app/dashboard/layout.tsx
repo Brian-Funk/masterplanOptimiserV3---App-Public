@@ -36,6 +36,7 @@ import { useToast } from "@/contexts/ToastContext";
 import { Spinner } from "@/components/ui/Spinner";
 import { buildInvalidJsonImportValidation } from "@/lib/importPreview";
 import { usePendingDeletionWork } from "@/contexts/PendingDeletionWorkContext";
+import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 
 function NavBar() {
   const router = useRouter();
@@ -724,6 +725,7 @@ export default function DashboardLayout({
           <NavBar />
           <EventGuard>
             <main className="mx-auto max-w-[1680px] px-8 py-7 xl:px-10 xl:py-8">
+              <PermittedDataInputNotice />
               {children}
             </main>
           </EventGuard>

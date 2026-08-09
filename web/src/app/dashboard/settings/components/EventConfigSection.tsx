@@ -4,7 +4,6 @@ import React, { useState, useEffect } from "react";
 import { Button, Input, Card, SwissDateInput } from "@/components/ui";
 import { eventsApi, capabilitiesApi } from "@/lib/api";
 import { formatDateWithWeekday } from "@/lib/dateFormat";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 import {
   DEFAULT_SCHEDULE_DAY_RANGE,
   formatScheduleHourLabel,
@@ -174,7 +173,6 @@ export function EventConfigSection({
         </p>
 
         <div className="space-y-4">
-          <PermittedDataInputNotice eventId={selectedEvent?.id} />
           <div>
             <label className="block text-sm font-medium text-foreground-secondary mb-1">
               Participant-visible event name

@@ -5,7 +5,6 @@ import { Button, Modal, Tooltip } from "@/components/ui";
 import { taskTypesApi } from "@/lib/api";
 import type { TaskType } from "@/lib/api";
 import { GCAL_PALETTE, gcalColorLabel } from "@/lib/gcalColors";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 
 /** Manage task-type colour, fatigue, ordering, and working-time policy. */
 export function TaskTypesSection() {
@@ -250,7 +249,6 @@ export function TaskTypesSection() {
                 />
               </div>
               <div>
-                <PermittedDataInputNotice />
                 <label className="block text-sm font-medium text-foreground-secondary mb-1">
                   Internal organiser operational task-type description
                 </label>
@@ -262,7 +260,6 @@ export function TaskTypesSection() {
                   }
                   className="w-full px-3 py-2 border border-bordercl-strong rounded-lg"
                 />
-                <p className="mt-1 text-xs text-foreground-muted">Organisers only. Describe scheduling behaviour, not a participant.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground-secondary mb-1">
