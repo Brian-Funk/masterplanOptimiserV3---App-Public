@@ -425,7 +425,7 @@ export function MpBackendSection() {
                   type="url"
                   value={serverUrl}
                   onChange={(e) => setServerUrl(e.target.value)}
-                  placeholder="https://mp-opt.net"
+                  placeholder="https://masterplan.example.org"
                   className="flex-1 px-3 py-2 text-sm border border-bordercl-strong rounded-md bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>

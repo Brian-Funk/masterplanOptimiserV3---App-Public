@@ -1,6 +1,6 @@
 {
   "name": "masterplan-optimizer-desktop",
-  "version": "3.8.1",
+  "version": "3.8.2",
   "description": "Desktop application for Masterplan Optimiser",
   "license": "AGPL-3.0-only",
   "main": "main.js",

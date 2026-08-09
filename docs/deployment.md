@@ -32,7 +32,7 @@ the separate release checksum manifest and then the package checksum. Replace
 
 ```bash
 TAG=vMAJOR.MINOR.PATCH
-BASE="https://github.com/Brian-Funk/masterplanOptimiserV3---App/releases/download/${TAG}"
+BASE="https://github.com/Brian-Funk/masterplanOptimiserV3---App-Public/releases/download/${TAG}"
 PACKAGE="Masterplan-Optimiser-MAJOR.MINOR.PATCH.exe" # choose the package you need
 curl -fLO "${BASE}/${PACKAGE}"
 curl -fLO "${BASE}/checksums.txt"
@@ -40,7 +40,7 @@ curl -fLO "${BASE}/checksums.txt.bundle"
 cosign verify-blob --bundle checksums.txt.bundle \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity \
-  "https://github.com/Brian-Funk/masterplanOptimiserV3---App/.github/workflows/build.yml@refs/tags/${TAG}" \
+  "https://github.com/Brian-Funk/masterplanOptimiserV3---App-Public/.github/workflows/build.yml@refs/tags/${TAG}" \
   checksums.txt
 awk -v package="${PACKAGE}" '$2 == package' checksums.txt | sha256sum -c -
 ```
