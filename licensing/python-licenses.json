@@ -12,6 +12,10 @@
       "license": "MIT",
       "project_url": "https://pypi.org/project/altgraph/"
     },
+    "annotated-doc==0.0.5": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/annotated-doc/"
+    },
     "annotated-types==0.8.0": {
       "license": "MIT",
       "project_url": "https://pypi.org/project/annotated-types/"
@@ -44,7 +48,7 @@
       "license": "BSD-3-Clause",
       "project_url": "https://pypi.org/project/colorama/"
     },
-    "cryptography==49.0.0": {
+    "cryptography==50.0.0": {
       "license": "Apache-2.0 OR BSD-3-Clause",
       "project_url": "https://pypi.org/project/cryptography/"
     },
@@ -56,7 +60,7 @@
       "license": "Unlicense",
       "project_url": "https://pypi.org/project/email-validator/"
     },
-    "fastapi==0.115.0": {
+    "fastapi==0.139.2": {
       "license": "MIT",
       "project_url": "https://pypi.org/project/fastapi/"
     },
@@ -208,7 +212,7 @@
       "license": "BSD-3-Clause",
       "project_url": "https://pypi.org/project/pycparser/"
     },
-    "pydantic-core==2.23.4": {
+    "pydantic-core==2.46.4": {
       "license": "MIT",
       "project_url": "https://pypi.org/project/pydantic_core/"
     },
@@ -216,9 +220,13 @@
       "license": "MIT",
       "project_url": "https://pypi.org/project/pydantic-settings/"
     },
-    "pydantic==2.9.2": {
+    "pydantic==2.13.4": {
       "license": "MIT",
       "project_url": "https://pypi.org/project/pydantic/"
+    },
+    "pygments==2.20.0": {
+      "license": "BSD-2-Clause",
+      "project_url": "https://pypi.org/project/Pygments/"
     },
     "pyinstaller-hooks-contrib==2026.6": {
       "license": "Apache-2.0 OR GPL-2.0-only",
@@ -232,11 +240,11 @@
       "license": "MIT",
       "project_url": "https://pypi.org/project/pyparsing/"
     },
-    "pytest-asyncio==0.24.0": {
+    "pytest-asyncio==1.4.0": {
       "license": "Apache-2.0",
       "project_url": "https://pypi.org/project/pytest-asyncio/"
     },
-    "pytest==8.3.3": {
+    "pytest==9.1.1": {
       "license": "MIT",
       "project_url": "https://pypi.org/project/pytest/"
     },
@@ -244,11 +252,11 @@
       "license": "Dual License",
       "project_url": "https://pypi.org/project/python-dateutil/"
     },
-    "python-dotenv==1.0.1": {
+    "python-dotenv==1.2.2": {
       "license": "BSD-3-Clause",
       "project_url": "https://pypi.org/project/python-dotenv/"
     },
-    "python-multipart==0.0.12": {
+    "python-multipart==0.0.31": {
       "license": "Apache-2.0",
       "project_url": "https://pypi.org/project/python-multipart/"
     },
@@ -284,13 +292,17 @@
       "license": "MIT",
       "project_url": "https://pypi.org/project/SQLAlchemy/"
     },
-    "starlette==0.38.6": {
+    "starlette==1.6.0": {
       "license": "BSD-3-Clause",
       "project_url": "https://pypi.org/project/starlette/"
     },
     "typing-extensions==4.16.0": {
       "license": "PSF-2.0",
       "project_url": "https://pypi.org/project/typing-extensions/"
+    },
+    "typing-inspection==0.4.2": {
+      "license": "MIT",
+      "project_url": "https://pypi.org/project/typing-inspection/"
     },
     "tzdata==2026.3": {
       "license": "Apache-2.0",

@@ -1,14 +1,14 @@
 # FastAPI Backend Requirements
 # Latest stable versions (Python 3.13 compatible)
-fastapi==0.115.0
+fastapi==0.139.2
 uvicorn[standard]==0.32.0
 sqlalchemy==2.0.35
 alembic==1.13.3
-pydantic==2.9.2
+pydantic==2.13.4
 pydantic-settings==2.6.0
 email-validator>=2.0.0
-python-multipart==0.0.12
-python-dotenv==1.0.1
+python-multipart==0.0.31
+python-dotenv==1.2.2
 
 # Google Calendar OAuth2
 google-api-python-client>=2.100.0
@@ -16,7 +16,7 @@ google-auth-httplib2>=0.2.0
 google-auth-oauthlib>=1.2.0
 
 # Encryption for sensitive local data
-cryptography>=42.0.0
+cryptography>=50.0.0
 keyring>=25.0.0
 
 # HTTP client
@@ -27,5 +27,5 @@ httpx==0.27.2
 ortools==9.9.3963
 
 # Development
-pytest==8.3.3
-pytest-asyncio==0.24.0
+pytest==9.1.1
+pytest-asyncio==1.4.0

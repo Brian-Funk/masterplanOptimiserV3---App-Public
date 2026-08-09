@@ -12,6 +12,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | absl-py | 2.5.0 | Apache-2.0 | https://pypi.org/project/absl-py/ |
 | alembic | 1.13.3 | MIT | https://pypi.org/project/alembic/ |
 | altgraph | 0.17.5 | MIT | https://pypi.org/project/altgraph/ |
+| annotated-doc | 0.0.5 | MIT | https://pypi.org/project/annotated-doc/ |
 | annotated-types | 0.8.0 | MIT | https://pypi.org/project/annotated-types/ |
 | anyio | 4.14.2 | MIT | https://pypi.org/project/anyio/ |
 | backports-tarfile | 1.2.0 | MIT | https://pypi.org/project/backports.tarfile/ |
@@ -20,10 +21,10 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | charset-normalizer | 3.4.9 | MIT | https://pypi.org/project/charset-normalizer/ |
 | click | 8.4.2 | BSD-3-Clause | https://pypi.org/project/click/ |
 | colorama | 0.4.6 | BSD-3-Clause | https://pypi.org/project/colorama/ |
-| cryptography | 49.0.0 | Apache-2.0 OR BSD-3-Clause | https://pypi.org/project/cryptography/ |
+| cryptography | 50.0.0 | Apache-2.0 OR BSD-3-Clause | https://pypi.org/project/cryptography/ |
 | dnspython | 2.8.0 | ISC | https://pypi.org/project/dnspython/ |
 | email-validator | 2.3.0 | Unlicense | https://pypi.org/project/email-validator/ |
-| fastapi | 0.115.0 | MIT | https://pypi.org/project/fastapi/ |
+| fastapi | 0.139.2 | MIT | https://pypi.org/project/fastapi/ |
 | google-api-core | 2.33.0 | Apache-2.0 | https://pypi.org/project/google-api-core/ |
 | google-api-python-client | 2.198.0 | Apache-2.0 | https://pypi.org/project/google-api-python-client/ |
 | google-auth-httplib2 | 0.4.0 | Apache-2.0 | https://pypi.org/project/google-auth-httplib2/ |
@@ -61,17 +62,18 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | pyasn1-modules | 0.4.2 | BSD-3-Clause | https://pypi.org/project/pyasn1-modules/ |
 | pyasn1 | 0.6.4 | BSD-2-Clause | https://pypi.org/project/pyasn1/ |
 | pycparser | 3.0 | BSD-3-Clause | https://pypi.org/project/pycparser/ |
-| pydantic-core | 2.23.4 | MIT | https://pypi.org/project/pydantic_core/ |
+| pydantic-core | 2.46.4 | MIT | https://pypi.org/project/pydantic_core/ |
 | pydantic-settings | 2.6.0 | MIT | https://pypi.org/project/pydantic-settings/ |
-| pydantic | 2.9.2 | MIT | https://pypi.org/project/pydantic/ |
+| pydantic | 2.13.4 | MIT | https://pypi.org/project/pydantic/ |
+| pygments | 2.20.0 | BSD-2-Clause | https://pypi.org/project/Pygments/ |
 | pyinstaller-hooks-contrib | 2026.6 | Apache-2.0 OR GPL-2.0-only | https://pypi.org/project/pyinstaller-hooks-contrib/ |
 | pyinstaller | 6.21.0 | GPL-2.0-only | https://pypi.org/project/pyinstaller/ |
 | pyparsing | 3.3.2 | MIT | https://pypi.org/project/pyparsing/ |
-| pytest-asyncio | 0.24.0 | Apache-2.0 | https://pypi.org/project/pytest-asyncio/ |
-| pytest | 8.3.3 | MIT | https://pypi.org/project/pytest/ |
+| pytest-asyncio | 1.4.0 | Apache-2.0 | https://pypi.org/project/pytest-asyncio/ |
+| pytest | 9.1.1 | MIT | https://pypi.org/project/pytest/ |
 | python-dateutil | 2.9.0.post0 | Dual License | https://pypi.org/project/python-dateutil/ |
-| python-dotenv | 1.0.1 | BSD-3-Clause | https://pypi.org/project/python-dotenv/ |
-| python-multipart | 0.0.12 | Apache-2.0 | https://pypi.org/project/python-multipart/ |
+| python-dotenv | 1.2.2 | BSD-3-Clause | https://pypi.org/project/python-dotenv/ |
+| python-multipart | 0.0.31 | Apache-2.0 | https://pypi.org/project/python-multipart/ |
 | pywin32-ctypes | 0.2.3 | BSD-3-Clause | https://pypi.org/project/pywin32-ctypes/ |
 | pyyaml | 6.0.3 | MIT | https://pypi.org/project/PyYAML/ |
 | requests-oauthlib | 2.0.0 | ISC | https://pypi.org/project/requests-oauthlib/ |
@@ -80,8 +82,9 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | six | 1.17.0 | MIT | https://pypi.org/project/six/ |
 | sniffio | 1.3.1 | MIT OR Apache-2.0 | https://pypi.org/project/sniffio/ |
 | sqlalchemy | 2.0.35 | MIT | https://pypi.org/project/SQLAlchemy/ |
-| starlette | 0.38.6 | BSD-3-Clause | https://pypi.org/project/starlette/ |
+| starlette | 1.6.0 | BSD-3-Clause | https://pypi.org/project/starlette/ |
 | typing-extensions | 4.16.0 | PSF-2.0 | https://pypi.org/project/typing-extensions/ |
+| typing-inspection | 0.4.2 | MIT | https://pypi.org/project/typing-inspection/ |
 | tzdata | 2026.3 | Apache-2.0 | https://pypi.org/project/tzdata/ |
 | uritemplate | 4.2.0 | BSD 3-Clause OR Apache-2.0 | https://pypi.org/project/uritemplate/ |
 | urllib3 | 2.7.0 | MIT | https://pypi.org/project/urllib3/ |
