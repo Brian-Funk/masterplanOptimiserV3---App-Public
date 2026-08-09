@@ -16,9 +16,7 @@ FieldPurpose = Literal[
     "timing",
 ]
 FieldVisibility = Literal[
-    "organiser",
     "participant",
-    "public",
     "never_publish",
 ]
 
@@ -40,20 +38,16 @@ def reviewed_publish_definition(field: dict) -> dict | None:
 
     if not field.get("classification_reviewed"):
         raise ValueError(
-            f"Field {field.get('name') or field.get('id') or '<unknown>'} must have its purpose and visibility reviewed before Server publishing"
+            f"Field {field.get('name') or field.get('id') or '<unknown>'} must have its purpose and Server sharing reviewed before publishing"
         )
     purpose = field.get("purpose")
     visibility = field.get("visibility")
     if purpose not in FieldPurpose.__args__:
         raise ValueError("A published field has an unsupported purpose")
-    if visibility not in FieldVisibility.__args__:
-        raise ValueError("A published field has an unsupported visibility")
     if visibility == "never_publish":
         return None
-    if visibility == "public" and not field.get("public_visibility_confirmed"):
-        raise ValueError(
-            f"Field {field.get('name') or field.get('id')} requires explicit public-visibility confirmation"
-        )
+    if visibility not in {"participant", "organiser", "public"}:
+        raise ValueError("A published field has an unsupported Server sharing setting")
     field_type = field.get("type")
     if field_type not in PUBLISHABLE_FIELD_TYPES:
         raise ValueError(
@@ -70,5 +64,7 @@ def reviewed_publish_definition(field: dict) -> dict | None:
         "name": field_name,
         "type": field_type,
         "purpose": purpose,
-        "visibility": visibility,
+        # Masterplan data is never public. Older organiser/public classifications
+        # are narrowed to the authenticated participant contract at the boundary.
+        "visibility": "participant",
     }

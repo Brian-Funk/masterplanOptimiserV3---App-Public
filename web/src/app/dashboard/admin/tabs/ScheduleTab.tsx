@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Send, ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
+import { Send, ArrowLeft, ArrowRight, RotateCcw, LockKeyhole } from "lucide-react";
 import { Spinner, Tooltip } from "@/components/ui";
 import { useToast } from "@/contexts/ToastContext";
 import {
@@ -591,6 +591,9 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h3 className="text-lg font-semibold text-foreground">Masterplan</h3>
+          <span className="inline-flex items-center gap-1 rounded-full border border-bordercl px-2 py-0.5 text-xs font-medium text-foreground-muted">
+            <LockKeyhole className="h-3 w-3" /> Authenticated
+          </span>
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${confidenceClasses(
               eventConfidence.level,

@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import { X, Trash2 } from "lucide-react";
 import ResourceSelector, { ANY_LOCATION_ID } from "./ResourceSelector";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 import {
   mergeGroupMemberSelections,
   normaliseGroupMembers,
@@ -472,15 +471,13 @@ const TaskEditModal: React.FC<TaskEditModalProps> = ({
               }}
             >
               <h3 className="font-semibold text-foreground mb-2">Classified operational fields</h3>
-              <PermittedDataInputNotice />
               <div className="grid grid-cols-2 gap-4 [&>*:last-child:nth-child(odd)]:col-span-2">
                 {sortFields(arbitraryFields).map((field: any) => (
                   <div key={field.id} className="space-y-2">
                     <label className="block">
                       <span className="text-sm font-medium text-foreground-secondary">
-                        Operational {String(field.purpose || "instruction").replaceAll("_", " ")}: {field.name}
+                        {field.name}
                       </span>
-                      <span className="block text-xs text-foreground-muted">Audience: {String(field.visibility || "not publishable").replaceAll("_", " ")}</span>
                     </label>
 
                     {(field.type === "text" || field.type === "link") && (

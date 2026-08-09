@@ -5,7 +5,6 @@ import { Button, Tooltip } from "@/components/ui";
 import { Minus, Lock, GripVertical } from "lucide-react";
 import { taskTemplatesApi, taskTypesApi, TaskType } from "@/lib/api";
 import { getApiUrl } from "@/lib/environment";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 
 /* ── Segmented Toggle ──────────────────────────────────────────── */
 function SegmentedToggle({
@@ -56,9 +55,8 @@ interface TemplateField {
     | "operational_instruction"
     | "reference"
     | "timing";
-  visibility?: "organiser" | "participant" | "public" | "never_publish";
+  visibility?: "participant" | "never_publish";
   classification_reviewed?: boolean;
-  public_visibility_confirmed?: boolean;
 }
 
 const FIELD_CATEGORIES = {
@@ -277,9 +275,11 @@ export function TaskTemplatesSection() {
       const classified = {
         ...f,
         purpose: f.purpose ?? "operational_instruction",
-        visibility: f.visibility ?? "never_publish",
+        visibility:
+          !f.visibility || f.visibility === "never_publish"
+            ? "never_publish"
+            : "participant",
         classification_reviewed: f.classification_reviewed ?? false,
-        public_visibility_confirmed: f.public_visibility_confirmed ?? false,
       };
       if (
         classified.category === "conditions" &&
@@ -315,7 +315,6 @@ export function TaskTemplatesSection() {
       purpose: "operational_instruction",
       visibility: "never_publish",
       classification_reviewed: false,
-      public_visibility_confirmed: false,
     };
     setFields([...fields, newField]);
   };
@@ -547,7 +546,6 @@ export function TaskTemplatesSection() {
             purpose: "operational_instruction",
             visibility: "never_publish",
             classification_reviewed: false,
-            public_visibility_confirmed: false,
           };
           return taskTemplatesApi.update(template.id, {
             ...template,
@@ -910,7 +908,6 @@ export function TaskTemplatesSection() {
                     </select>
                   </div>
                   <div>
-                    <PermittedDataInputNotice />
                     <label className="block text-xs font-medium text-foreground-secondary mb-1">
                       Internal organiser operational template description
                     </label>
@@ -925,7 +922,6 @@ export function TaskTemplatesSection() {
                       }
                       className="w-full px-2 py-1.5 border border-bordercl-strong rounded-md text-sm"
                     />
-                    <p className="mt-1 text-xs text-foreground-muted">Organisers only. Describe the template purpose, not a participant.</p>
                   </div>
                 </div>
 
@@ -1073,7 +1069,6 @@ export function TaskTemplatesSection() {
                                       type: e.target.value,
                                       locked: false,
                                       classification_reviewed: false,
-                                      public_visibility_confirmed: false,
                                     })
                                   }
                                   className={`w-full px-2 py-1 border border-bordercl-strong rounded text-sm ${
@@ -1125,7 +1120,7 @@ export function TaskTemplatesSection() {
                                 )}
                               </div>
                             </div>
-                            <div className="ml-7 mt-2 grid gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs dark:border-amber-900 dark:bg-amber-950/20 sm:grid-cols-3">
+                            <div className="ml-7 mt-2 grid gap-3 rounded border border-bordercl bg-surface-alt p-3 text-xs sm:grid-cols-3">
                               <label>
                                 <span className="mb-1 block font-medium">Operational purpose</span>
                                 <select
@@ -1145,20 +1140,17 @@ export function TaskTemplatesSection() {
                                 </select>
                               </label>
                               <label>
-                                <span className="mb-1 block font-medium">Who may receive it</span>
+                                <span className="mb-1 block font-medium">Server sharing</span>
                                 <select
                                   value={field.visibility ?? "never_publish"}
                                   onChange={(event) => updateField(origIdx, {
                                     visibility: event.target.value as TemplateField["visibility"],
                                     classification_reviewed: false,
-                                    public_visibility_confirmed: false,
                                   })}
                                   className="w-full rounded border border-bordercl-strong bg-surface px-2 py-1"
                                 >
-                                  <option value="never_publish">Never publish</option>
-                                  <option value="organiser">Organisers only</option>
-                                  <option value="participant">Authenticated participants</option>
-                                  <option value="public">Public</option>
+                                  <option value="never_publish">Keep on this workstation</option>
+                                  <option value="participant">Include in authenticated Masterplan</option>
                                 </select>
                               </label>
                               <label className="flex items-start gap-2 pt-5">
@@ -1169,21 +1161,8 @@ export function TaskTemplatesSection() {
                                     classification_reviewed: event.target.checked,
                                   })}
                                 />
-                                <span>I reviewed necessity and audience. Do not enter sensitive or unrelated personal information. Exact policy details are shown in MP-Backend settings.</span>
+                                <span>I reviewed whether this operational field is necessary to share with authenticated users.</span>
                               </label>
-                              {field.visibility === "public" && (
-                                <label className="flex items-start gap-2 sm:col-span-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={field.public_visibility_confirmed ?? false}
-                                    onChange={(event) => updateField(origIdx, {
-                                      public_visibility_confirmed: event.target.checked,
-                                      classification_reviewed: false,
-                                    })}
-                                  />
-                                  <span>I explicitly confirm that this field may be disclosed to the public. This classification change is recorded under a pseudonymous local operator identifier.</span>
-                                </label>
-                              )}
                             </div>
                           </div>
                         );

@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Copy,
   Filter,
+  Globe2,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -60,7 +61,6 @@ import {
   GENERAL_SCHEDULE_IMPORT_HEADER,
   parseGeneralScheduleSpreadsheet,
 } from "@/lib/generalScheduleImport";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 
 type GeneralScheduleTabProps = {
   selectedEvent: any;
@@ -883,6 +883,9 @@ export function GeneralScheduleTab({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-lg font-semibold text-foreground">General Schedule</h3>
+            <span className="inline-flex items-center gap-1 rounded-full border border-bordercl px-2 py-0.5 text-xs font-medium text-foreground-muted">
+              <Globe2 className="h-3 w-3" /> Public
+            </span>
             <Tooltip content={publishStatus.description} side="bottom">
               <span
                 className={`inline-flex items-center gap-1.5 text-xs font-medium ${confidenceClasses(
@@ -1456,7 +1459,6 @@ export function GeneralScheduleTab({
                     {persons.map((person) => <option key={person.id} value={person.id}>{personLabel(person)}</option>)}
                   </select>
                 </label>
-                <PermittedDataInputNotice eventId={selectedEvent?.id} />
                 <label className="block space-y-1">
                   <span className="text-xs font-medium text-foreground-muted">Public responsible role or contact label</span>
                   <input className="w-full rounded-md border border-bordercl bg-surface px-2.5 py-2 text-sm" value={form.responsible_text} onChange={(event) => setForm({ ...form, responsible_text: event.target.value })} />
@@ -1645,7 +1647,6 @@ export function GeneralScheduleTab({
               <Copy className="h-3.5 w-3.5" /> Copy column headers
             </Button>
           </div>
-          <PermittedDataInputNotice eventId={selectedEvent?.id} />
           <p className="text-xs text-foreground-muted">Imported descriptions and responsible labels may be published to selected public programme views.</p>
           <textarea
             className="min-h-44 w-full rounded-md border border-bordercl bg-surface px-3 py-2 font-mono text-xs"
