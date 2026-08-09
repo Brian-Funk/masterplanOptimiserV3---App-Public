@@ -510,7 +510,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | ms | 2.1.3 | MIT | `desktop/package-lock.json` |
 | ms | 2.1.3 | MIT | `web/package-lock.json` |
 | mz | 2.7.0 | MIT | `web/package-lock.json` |
-| nanoid | 3.3.16 | MIT | `web/package-lock.json` |
+| nanoid | 3.3.18 | MIT | `web/package-lock.json` |
 | next | 16.2.12 | MIT | `web/package-lock.json` |
 | node-abi | 4.33.0 | MIT | `desktop/package-lock.json` |
 | node-api-version | 0.2.1 | MIT | `desktop/package-lock.json` |
