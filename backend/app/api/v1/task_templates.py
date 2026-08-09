@@ -7,7 +7,11 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, field_serializer, ConfigDict, Field
-from app.core.data_minimisation import FieldPurpose
+from app.core.data_minimisation import (
+    FieldPurpose,
+    INTERNAL_ONLY_FIELD_TYPES,
+    inferred_field_purpose,
+)
 
 from app.db.database import get_db
 from app.core.local_operator import local_operator_subject
@@ -44,8 +48,8 @@ class TemplateField(BaseModel):
     optimised: bool = False  # If true, field is set by optimiser
     config: dict = Field(default_factory=dict)  # Type-specific configuration (min, max, etc.)
     purpose: FieldPurpose = "operational_instruction"
-    visibility: str = "never_publish"
-    classification_reviewed: bool = False
+    visibility: str = "participant"
+    classification_reviewed: bool = True
     public_visibility_confirmed: bool = False
 
 
@@ -90,22 +94,25 @@ class TaskTemplateResponse(BaseModel):
         return dt.isoformat() if dt else None
 
 
-def _normalise_masterplan_sharing(fields: list[TemplateField] | list[dict]) -> list[dict]:
-    """Store only local or authenticated Masterplan sharing decisions."""
+def _normalise_masterplan_fields(fields: list[TemplateField] | list[dict]) -> list[dict]:
+    """Apply fixed purpose and audience metadata derived from each field type."""
 
     normalised: list[dict] = []
     for field in fields:
         value = field if isinstance(field, dict) else field.model_dump()
         value = dict(value)
-        sharing = value.get("visibility", "never_publish")
-        if sharing not in {"never_publish", "participant", "organiser", "public"}:
+        field_type = value.get("type")
+        purpose = inferred_field_purpose(field_type)
+        if purpose is None and field_type not in INTERNAL_ONLY_FIELD_TYPES:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Field {value.get('name') or value.get('id')} has an unsupported Server sharing setting",
+                detail=f"Field {value.get('name') or value.get('id')} has an unsupported field type",
             )
+        value["purpose"] = purpose or "assignment"
         value["visibility"] = (
-            "never_publish" if sharing == "never_publish" else "participant"
+            "never_publish" if field_type in INTERNAL_ONLY_FIELD_TYPES else "participant"
         )
+        value["classification_reviewed"] = True
         value["public_visibility_confirmed"] = False
         normalised.append(value)
     return normalised
@@ -200,7 +207,7 @@ async def create_template(
         )
     
     create_data = template.model_dump()
-    create_data["fields"] = _normalise_masterplan_sharing(template.fields)
+    create_data["fields"] = _normalise_masterplan_fields(template.fields)
     db_template = TaskTemplate(**{**create_data, "machine_name": machine_name})
     
     # Validate: transfer templates with dynamic_transfer_allocation must have a transferee field
@@ -258,7 +265,7 @@ async def update_template(
     is_transfer = update_data.get('is_transfer', db_template.is_transfer)
     fields_to_check = update_data.get('fields', db_template.fields or [])
     if "fields" in update_data:
-        fields_to_check = _normalise_masterplan_sharing(fields_to_check)
+        fields_to_check = _normalise_masterplan_fields(fields_to_check)
         update_data["fields"] = fields_to_check
     if is_transfer and fields_to_check:
         field_types = [f.get('type') if isinstance(f, dict) else getattr(f, 'type', None) for f in fields_to_check]

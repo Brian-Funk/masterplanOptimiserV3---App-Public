@@ -13,6 +13,7 @@ from app.api.v1.task_templates import (
 from app.api.v1.general_schedule import SessionElementCreate, create_session_element
 from app.core.data_minimisation import (
     PUBLISH_CONTRACT_VERSION,
+    inferred_field_purpose,
     reviewed_publish_definition,
 )
 from app.db.database import Base
@@ -32,30 +33,29 @@ def db_session():
         engine.dispose()
 
 
-def test_unclassified_field_is_fail_closed_until_reviewed():
-    with pytest.raises(ValueError, match="purpose and Server sharing reviewed"):
-        reviewed_publish_definition({"id": "notes", "name": "Notes", "type": "text"})
+@pytest.mark.parametrize(("field_type", "purpose"), [
+    ("duration", "timing"),
+    ("time_range", "timing"),
+    ("start_end_time", "timing"),
+    ("location", "location"),
+    ("capabilities_list", "assignment"),
+    ("persons_list", "assignment"),
+    ("link", "reference"),
+    ("text", "operational_instruction"),
+    ("number", "operational_instruction"),
+])
+def test_field_purpose_is_derived_from_type(field_type, purpose):
+    assert inferred_field_purpose(field_type) == purpose
 
 
-def test_never_publish_field_is_omitted_after_review():
-    assert reviewed_publish_definition({
-        "id": "notes",
-        "name": "Notes",
-        "type": "text",
-        "purpose": "operational_instruction",
-        "visibility": "never_publish",
-        "classification_reviewed": True,
-    }) is None
-
-
-def test_reviewed_field_has_exact_wire_metadata():
+def test_field_has_automatic_authenticated_wire_metadata():
     definition = reviewed_publish_definition({
         "id": "brief",
         "name": "Operational brief",
         "type": "text",
-        "purpose": "operational_instruction",
-        "visibility": "participant",
-        "classification_reviewed": True,
+        "purpose": "assignment",
+        "visibility": "never_publish",
+        "classification_reviewed": False,
     })
     assert definition == {
         "id": "brief",
@@ -67,33 +67,21 @@ def test_reviewed_field_has_exact_wire_metadata():
     assert PUBLISH_CONTRACT_VERSION == "2026-07-30"
 
 
-@pytest.mark.parametrize("legacy_visibility", ["organiser", "public"])
-def test_older_publishable_classifications_are_narrowed_to_authenticated(legacy_visibility):
-    definition = reviewed_publish_definition({
-        "id": "brief",
-        "name": "Operational brief",
-        "type": "text",
-        "purpose": "operational_instruction",
-        "visibility": legacy_visibility,
-        "classification_reviewed": True,
-    })
-    assert definition["visibility"] == "participant"
+def test_optimizer_only_field_is_not_a_participant_operational_field():
+    assert reviewed_publish_definition({
+        "id": "dynamic",
+        "name": "Dynamic allocation",
+        "type": "dynamic_transfer_allocation",
+    }) is None
 
 
-def test_unbounded_field_type_cannot_cross_server_boundary():
+def test_unknown_field_type_cannot_cross_server_boundary():
     with pytest.raises(ValueError, match="no bounded Server wire type"):
-        reviewed_publish_definition({
-            "id": "dynamic",
-            "name": "Dynamic allocation",
-            "type": "dynamic_transfer_allocation",
-            "purpose": "assignment",
-            "visibility": "participant",
-            "classification_reviewed": True,
-        })
+        reviewed_publish_definition({"id": "unknown", "name": "Unknown", "type": "binary"})
 
 
 @pytest.mark.asyncio
-async def test_template_sharing_is_normalised_to_authenticated_and_audited(db_session):
+async def test_template_metadata_is_derived_and_audited(db_session):
     public_field = {
         "id": "brief",
         "name": "Public brief",
@@ -112,11 +100,16 @@ async def test_template_sharing_is_normalised_to_authenticated_and_audited(db_se
         db=db_session,
     )
     assert created.fields[0]["visibility"] == "participant"
+    assert created.fields[0]["purpose"] == "operational_instruction"
+    assert created.fields[0]["classification_reviewed"] is True
     await update_template(
         created.id,
         TaskTemplateUpdate(fields=[{
             **public_field,
+            "type": "link",
+            "purpose": "timing",
             "visibility": "never_publish",
+            "classification_reviewed": False,
         }]),
         db=db_session,
     )
@@ -130,8 +123,9 @@ async def test_template_sharing_is_normalised_to_authenticated_and_audited(db_se
     assert len(records) == 2
     assert records[0].previous_visibility is None
     assert records[0].new_visibility == "participant"
-    assert records[1].previous_visibility == "participant"
-    assert records[1].new_visibility == "never_publish"
+    assert records[1].previous_purpose == "operational_instruction"
+    assert records[1].new_purpose == "reference"
+    assert records[1].new_visibility == "participant"
     assert records[0].operator_subject == records[1].operator_subject
     assert len(records[0].operator_subject) == 64
 

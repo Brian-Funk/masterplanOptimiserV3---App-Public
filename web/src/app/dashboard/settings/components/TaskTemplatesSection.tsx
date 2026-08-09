@@ -59,6 +59,32 @@ interface TemplateField {
   classification_reviewed?: boolean;
 }
 
+function automaticFieldMetadata(type: string): Pick<
+  TemplateField,
+  "purpose" | "visibility" | "classification_reviewed"
+> {
+  if (["time_range", "duration", "start_end_time"].includes(type)) {
+    return { purpose: "timing", visibility: "participant", classification_reviewed: true };
+  }
+  if (type === "location") {
+    return { purpose: "location", visibility: "participant", classification_reviewed: true };
+  }
+  if (["capabilities_list", "persons_list"].includes(type)) {
+    return { purpose: "assignment", visibility: "participant", classification_reviewed: true };
+  }
+  if (type === "link") {
+    return { purpose: "reference", visibility: "participant", classification_reviewed: true };
+  }
+  if (["dynamic_transfer_allocation", "transferee"].includes(type)) {
+    return { purpose: "assignment", visibility: "never_publish", classification_reviewed: true };
+  }
+  return {
+    purpose: "operational_instruction",
+    visibility: "participant",
+    classification_reviewed: true,
+  };
+}
+
 const FIELD_CATEGORIES = {
   arbitrary: {
     key: "arbitrary",
@@ -274,19 +300,18 @@ export function TaskTemplatesSection() {
     const sanitizedFields = (template.fields || []).map((f: TemplateField) => {
       const classified = {
         ...f,
-        purpose: f.purpose ?? "operational_instruction",
-        visibility:
-          !f.visibility || f.visibility === "never_publish"
-            ? "never_publish"
-            : "participant",
-        classification_reviewed: f.classification_reviewed ?? false,
+        ...automaticFieldMetadata(f.type),
       };
       if (
         classified.category === "conditions" &&
         !classified.locked &&
         TIME_LOCATION_TYPES.has(classified.type)
       ) {
-        return { ...classified, type: "capabilities_list" };
+        return {
+          ...classified,
+          type: "capabilities_list",
+          ...automaticFieldMetadata("capabilities_list"),
+        };
       }
       return classified;
     });
@@ -312,9 +337,7 @@ export function TaskTemplatesSection() {
       locked: false,
       optimised: false,
       config: {},
-      purpose: "operational_instruction",
-      visibility: "never_publish",
-      classification_reviewed: false,
+      ...automaticFieldMetadata(allowedTypes[0].value),
     };
     setFields([...fields, newField]);
   };
@@ -468,7 +491,10 @@ export function TaskTemplatesSection() {
           : undefined,
         is_floating: formData.is_floating,
         is_transfer: formData.is_transfer,
-        fields: fields,
+        fields: fields.map((field) => ({
+          ...field,
+          ...automaticFieldMetadata(field.type),
+        })),
       };
 
       if (editingTemplate) {
@@ -543,9 +569,7 @@ export function TaskTemplatesSection() {
             locked: false,
             optimised: false,
             config: {},
-            purpose: "operational_instruction",
-            visibility: "never_publish",
-            classification_reviewed: false,
+            ...automaticFieldMetadata(bulkFieldType),
           };
           return taskTemplatesApi.update(template.id, {
             ...template,
@@ -1068,7 +1092,7 @@ export function TaskTemplatesSection() {
                                     updateField(origIdx, {
                                       type: e.target.value,
                                       locked: false,
-                                      classification_reviewed: false,
+                                      ...automaticFieldMetadata(e.target.value),
                                     })
                                   }
                                   className={`w-full px-2 py-1 border border-bordercl-strong rounded text-sm ${
@@ -1119,50 +1143,6 @@ export function TaskTemplatesSection() {
                                   </span>
                                 )}
                               </div>
-                            </div>
-                            <div className="ml-7 mt-2 grid gap-3 rounded border border-bordercl bg-surface-alt p-3 text-xs sm:grid-cols-3">
-                              <label>
-                                <span className="mb-1 block font-medium">Operational purpose</span>
-                                <select
-                                  value={field.purpose ?? "operational_instruction"}
-                                  onChange={(event) => updateField(origIdx, {
-                                    purpose: event.target.value as TemplateField["purpose"],
-                                    classification_reviewed: false,
-                                  })}
-                                  className="w-full rounded border border-bordercl-strong bg-surface px-2 py-1"
-                                >
-                                  <option value="assignment">Assignment</option>
-                                  <option value="capability_requirement">Capability requirement</option>
-                                  <option value="location">Location</option>
-                                  <option value="operational_instruction">Operational instruction</option>
-                                  <option value="reference">Reference</option>
-                                  <option value="timing">Timing</option>
-                                </select>
-                              </label>
-                              <label>
-                                <span className="mb-1 block font-medium">Server sharing</span>
-                                <select
-                                  value={field.visibility ?? "never_publish"}
-                                  onChange={(event) => updateField(origIdx, {
-                                    visibility: event.target.value as TemplateField["visibility"],
-                                    classification_reviewed: false,
-                                  })}
-                                  className="w-full rounded border border-bordercl-strong bg-surface px-2 py-1"
-                                >
-                                  <option value="never_publish">Keep on this workstation</option>
-                                  <option value="participant">Include in authenticated Masterplan</option>
-                                </select>
-                              </label>
-                              <label className="flex items-start gap-2 pt-5">
-                                <input
-                                  type="checkbox"
-                                  checked={field.classification_reviewed ?? false}
-                                  onChange={(event) => updateField(origIdx, {
-                                    classification_reviewed: event.target.checked,
-                                  })}
-                                />
-                                <span>I reviewed whether this operational field is necessary to share with authenticated users.</span>
-                              </label>
                             </div>
                           </div>
                         );

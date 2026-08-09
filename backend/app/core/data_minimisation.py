@@ -20,36 +20,38 @@ FieldVisibility = Literal[
     "never_publish",
 ]
 
-PUBLISHABLE_FIELD_TYPES = {
-    "capabilities_list",
-    "duration",
-    "link",
-    "location",
-    "number",
-    "persons_list",
-    "start_end_time",
-    "text",
-    "time_range",
+FIELD_PURPOSE_BY_TYPE: dict[str, FieldPurpose] = {
+    "capabilities_list": "assignment",
+    "duration": "timing",
+    "link": "reference",
+    "location": "location",
+    "number": "operational_instruction",
+    "persons_list": "assignment",
+    "start_end_time": "timing",
+    "text": "operational_instruction",
+    "time_range": "timing",
 }
+PUBLISHABLE_FIELD_TYPES = frozenset(FIELD_PURPOSE_BY_TYPE)
+
+# These fields are implementation details used by the optimiser. They are not
+# participant-facing operational fields and have no bounded Server wire type.
+INTERNAL_ONLY_FIELD_TYPES = frozenset({"dynamic_transfer_allocation", "transferee"})
+
+
+def inferred_field_purpose(field_type: str) -> FieldPurpose | None:
+    """Return the fixed operational purpose for a participant-facing field type."""
+
+    return FIELD_PURPOSE_BY_TYPE.get(field_type)
 
 
 def reviewed_publish_definition(field: dict) -> dict | None:
-    """Return a bounded wire definition or fail closed for unclassified fields."""
+    """Return the automatic authenticated wire definition for a Masterplan field."""
 
-    if not field.get("classification_reviewed"):
-        raise ValueError(
-            f"Field {field.get('name') or field.get('id') or '<unknown>'} must have its purpose and Server sharing reviewed before publishing"
-        )
-    purpose = field.get("purpose")
-    visibility = field.get("visibility")
-    if purpose not in FieldPurpose.__args__:
-        raise ValueError("A published field has an unsupported purpose")
-    if visibility == "never_publish":
-        return None
-    if visibility not in {"participant", "organiser", "public"}:
-        raise ValueError("A published field has an unsupported Server sharing setting")
     field_type = field.get("type")
-    if field_type not in PUBLISHABLE_FIELD_TYPES:
+    if field_type in INTERNAL_ONLY_FIELD_TYPES:
+        return None
+    purpose = inferred_field_purpose(field_type)
+    if purpose is None:
         raise ValueError(
             f"Field {field.get('name') or field.get('id')} has no bounded Server wire type"
         )
@@ -64,7 +66,7 @@ def reviewed_publish_definition(field: dict) -> dict | None:
         "name": field_name,
         "type": field_type,
         "purpose": purpose,
-        # Masterplan data is never public. Older organiser/public classifications
-        # are narrowed to the authenticated participant contract at the boundary.
+        # Masterplan is the authenticated schedule. Its operational fields are
+        # never public and no per-field audience choice is exposed.
         "visibility": "participant",
     }
