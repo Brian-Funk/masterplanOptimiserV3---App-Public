@@ -1,6 +1,7 @@
 import type { PublishTarget, TaskInstance } from "@/lib/api";
 import type { JobSummary } from "@/types/optimization";
 import type { ConfidenceLevel } from "@/lib/confidence";
+import { normalisePublishTargets } from "@/lib/publishTargets";
 import {
   compareStatusTimestamps,
   formatStatusTimestamp,
@@ -710,7 +711,7 @@ export function deriveConflictsItem(
 export function derivePublishingItem(
   input: EventStatusSummaryInput,
 ): EventStatusItem {
-  const publishTarget = input.publishTarget ?? [];
+  const publishTarget = normalisePublishTargets(input.publishTarget);
   const taskInstances = input.taskInstances ?? [];
   const failedText = formatStatusTimestamp(input.publishFailedAt, {
     now: input.now,

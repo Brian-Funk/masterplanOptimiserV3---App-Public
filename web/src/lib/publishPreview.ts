@@ -7,6 +7,7 @@ import {
 import { formatStatusTimestamp } from "@/lib/statusTimestamps";
 import { getPublishTargetsLabel, normalisePublishTargets } from "@/lib/publishTargets";
 
+export type PublishPreviewTarget = "google_calendar" | "mp_backend" | "both";
 export type PublishPreviewScope = "selected_day" | "all_days";
 
 export type DayPublishPreviewStatus =
@@ -67,9 +68,18 @@ export interface PublishPreviewInput {
   now?: Date;
 }
 
+/** Translate a retired scalar target for compatibility with existing clients. */
+export function toPublishPreviewTarget(target: unknown): PublishPreviewTarget | null {
+  const targets = normalisePublishTargets(target);
+  if (targets.length === 1 && targets[0] === "google") return "google_calendar";
+  if (targets.length === 1 && targets[0] === "mp-backend") return "mp_backend";
+  if (targets.length === 2 && !targets.includes("pdf")) return "both";
+  return null;
+}
+
 /** Return a non-sensitive label for the publish destination. */
-export function getPublishTargetLabel(target: PublishTarget): string {
-  return getPublishTargetsLabel(target);
+export function getPublishTargetLabel(target: unknown): string {
+  return getPublishTargetsLabel(normalisePublishTargets(target));
 }
 
 /** Build the low-noise confirmation model shown before external publishing. */

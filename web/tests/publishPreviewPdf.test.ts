@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { derivePublishPreview } from "@/lib/publishPreview";
-import type { DayPublishStatus } from "@/lib/eventStatusSummary";
+import {
+  derivePublishPreview,
+  getPublishTargetLabel,
+  toPublishPreviewTarget,
+} from "@/lib/publishPreview";
+import {
+  derivePublishingItem,
+  type DayPublishStatus,
+} from "@/lib/eventStatusSummary";
 import type { TaskInstance } from "@/lib/api";
 
 const dayId = "2032-04-21";
@@ -67,5 +74,15 @@ describe("PDF publish previews", () => {
 
     expect(preview.canPublish).toBe(false);
     expect(preview.blockingReasons).toContain("No publish target is configured.");
+  });
+
+  it("keeps retired scalar presentation helpers compatible", () => {
+    expect(toPublishPreviewTarget("google")).toBe("google_calendar");
+    expect(toPublishPreviewTarget("mp-backend")).toBe("mp_backend");
+    expect(getPublishTargetLabel("both")).toBe("Google Calendar and MP-Backend");
+    expect(getPublishTargetLabel(null)).toBe("No publish target");
+    expect(
+      derivePublishingItem({ publishTarget: "none", taskInstances: [] } as any),
+    ).toMatchObject({ status: "No target", level: "blocked" });
   });
 });
