@@ -59,6 +59,8 @@ type CalendarTask = {
   _visual_width?: number | null; // percentage points for width (null = auto)
   // Extra fields from description templates (show_on_card = true)
   _extra_card_fields?: Array<{ label: string; value: string }>;
+  // Print-only reference derived by the PDF renderer (for example T01).
+  _pdf_reference?: string;
   optimised?: Record<string, any>;
   final?: Record<string, any>;
   manualChange?: {
@@ -140,6 +142,7 @@ type CalendarProps = {
   canNavigateNext?: boolean;
   masterplanMode?: boolean;
   presentationMode?: boolean;
+  pdfMode?: boolean;
   density?: CalendarDensity;
   onLayoutChange?: (
     taskId: number,
@@ -952,13 +955,22 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
             isPresentationCompact ? "space-y-0.5" : "space-y-1"
           }`}
         >
-          {taskTimeLabel && (
-            <div
-              className={`font-mono font-semibold tracking-normal text-foreground ${
-                isPresentationCompact ? "text-[11px]" : "text-xs"
-              }`}
-            >
-              {taskTimeLabel}
+          {(task._pdf_reference || taskTimeLabel) && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              {task._pdf_reference && (
+                <span className="rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold leading-none tracking-wide text-white">
+                  {task._pdf_reference}
+                </span>
+              )}
+              {taskTimeLabel && (
+                <span
+                  className={`font-mono font-semibold tracking-normal text-foreground ${
+                    isPresentationCompact ? "text-[11px]" : "text-xs"
+                  }`}
+                >
+                  {taskTimeLabel}
+                </span>
+              )}
             </div>
           )}
           <div
@@ -1263,6 +1275,7 @@ type DailyViewProps = {
   ) => void;
   masterplanMode?: boolean;
   presentationMode?: boolean;
+  pdfMode?: boolean;
   density?: CalendarDensity;
   onLayoutChange?: (
     taskId: number,
@@ -1296,6 +1309,7 @@ const DailyView: React.FC<DailyViewProps> = ({
   onPersonRightClick,
   masterplanMode = false,
   presentationMode = false,
+  pdfMode = false,
   density = "comfortable",
   onLayoutChange,
 }) => {
@@ -1482,11 +1496,20 @@ const DailyView: React.FC<DailyViewProps> = ({
   };
 
   const defaultDayRange = range;
-  const hourHeight = presentationMode
-    ? density === "compact"
-      ? 96
-      : 132
-    : 120;
+  const pdfHourHeight = Math.max(
+    32,
+    Math.min(
+      62,
+      520 / Math.max(defaultDayRange.endHour - defaultDayRange.startHour, 1),
+    ),
+  );
+  const hourHeight = pdfMode
+    ? pdfHourHeight
+    : presentationMode
+      ? density === "compact"
+        ? 96
+        : 132
+      : 120;
   const halfHourHeight = hourHeight / 2;
   const [startHour, setStartHour] = useState(defaultDayRange.startHour);
   const [endHour, setEndHour] = useState(defaultDayRange.endHour);
@@ -1792,6 +1815,7 @@ const DailyView: React.FC<DailyViewProps> = ({
           : "overflow-x-auto"
       }
       data-presentation-mode={presentationMode ? "true" : undefined}
+      data-pdf-mode={pdfMode ? "true" : undefined}
       data-calendar-density={density}
     >
       {/* Auto-fit toolbar */}
@@ -2681,6 +2705,7 @@ const Calendar: React.FC<CalendarProps> = ({
   onPersonRightClick,
   masterplanMode,
   presentationMode,
+  pdfMode,
   density = "comfortable",
   onLayoutChange,
 }) => {
@@ -2711,6 +2736,7 @@ const Calendar: React.FC<CalendarProps> = ({
       onPersonRightClick={onPersonRightClick}
       masterplanMode={masterplanMode}
       presentationMode={presentationMode}
+      pdfMode={pdfMode}
       density={density}
       onLayoutChange={onLayoutChange}
     />

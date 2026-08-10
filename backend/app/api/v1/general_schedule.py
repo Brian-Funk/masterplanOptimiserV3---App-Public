@@ -18,6 +18,7 @@ from app.models.general_schedule import (
 )
 from app.models.location import Location
 from app.models.person import Person
+from app.core.rich_template import validate_rich_template
 
 router = APIRouter()
 
@@ -390,6 +391,11 @@ class SessionElementTypeCreate(BaseModel):
     sort_order: Optional[float] = 0
     copy_template_html: Optional[str] = None
 
+    @field_validator("copy_template_html")
+    @classmethod
+    def validate_copy_template_html(cls, value: Optional[str]) -> Optional[str]:
+        return validate_rich_template(value)
+
 
 class SessionElementTypeUpdate(BaseModel):
     name: Optional[str] = None
@@ -397,6 +403,11 @@ class SessionElementTypeUpdate(BaseModel):
     colour: Optional[str] = None
     sort_order: Optional[float] = None
     copy_template_html: Optional[str] = None
+
+    @field_validator("copy_template_html")
+    @classmethod
+    def validate_copy_template_html(cls, value: Optional[str]) -> Optional[str]:
+        return validate_rich_template(value)
 
 
 class SessionElementTypeResponse(BaseModel):

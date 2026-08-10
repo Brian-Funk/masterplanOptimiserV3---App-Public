@@ -33,14 +33,16 @@ Keyboard shortcuts are configurable under Settings, and shortcut conflicts are h
 
 Publishing can target:
 
-- no target;
 - Google Calendar;
 - MP-Backend;
-- both Google Calendar and MP-Backend.
+- local PDF;
+- any combination of those three destinations.
 
-The default publish target is `none`, which prevents a clean install from trying to publish before the user configures an integration.
+An empty selection means publishing is unconfigured. This prevents a clean install from publishing before the user deliberately selects a destination.
 
-Before publishing, the app finalises current task instance state so the backend task table reflects the reviewed schedule. Google Calendar publishing can target one selected day or all days. MP-Backend publishing sends the finalised event data to the configured receiver.
+Before publishing, the app validates PDF readiness and then finalises current task instance state so the backend task table reflects the reviewed schedule. Google Calendar and MP-Backend receive the same selected ready days. PDF-only publishing remains local: selected-day publishing creates a portrait day packet, while all-days publishing creates one multi-page document with every ready day starting on a new A4 portrait page. Each day combines a visual timeline with referenced task details; dense detail lists continue onto additional pages rather than shrinking titles or allocations below a readable size.
+
+Configure the event-specific PDF title and choose a workstation output folder under **Settings → PDF Export**. The folder is selected once for the workstation and is not included in project exports, backups, logs, or diagnostics. Every publish creates a new light-mode file named `<title>_YYYY_MM_DD_HH_mm.pdf`; existing files are retained and collisions receive a numeric suffix.
 
 ## Import And Export
 

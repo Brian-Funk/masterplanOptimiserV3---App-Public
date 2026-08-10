@@ -12,7 +12,7 @@ Electron records only the backend and frontend child processes it starts. Shutdo
 
 Sensitive credentials and integration secrets should be encrypted at rest when stored in application settings or event records. This includes Google OAuth credentials, Google tokens, and MP-Backend publish secrets.
 
-Exports must omit publish secrets and integration identifiers that are not needed for a portable planning backup.
+Exports must omit publish secrets and integration identifiers that are not needed for a portable planning backup. The workstation PDF output path is Electron-only state and is never part of project exports or backend diagnostics.
 
 The workstation and storage boundary, including exact desktop storage categories and controller checks, is documented in [Workstation storage security](workstation-storage-security.md).
 
@@ -24,9 +24,11 @@ OAuth logs must not include auth codes, full state values, tokens, or verifier k
 
 ## Publishing
 
-The app supports Google Calendar and MP-Backend publishing. A new install defaults to publish target `none`; users must explicitly configure where publishing should go.
+The app supports independently selectable Google Calendar, MP-Backend, and local PDF publishing. A new install has no selected destinations; users must explicitly configure where publishing should go.
 
 MP-Backend publishing uses per-event server settings and a publish secret. Those values are operational secrets and should not appear in exports, logs, or generated documentation.
+
+The renderer supplies only bounded structured schedule data for PDF jobs. Electron validates the trusted IPC sender, event/date bounds, payload size, title, configured folder, and writability; it constructs the output path itself and uses exclusive file creation so a PDF cannot traverse outside the selected folder or overwrite an older file.
 
 ## CI And Releases
 

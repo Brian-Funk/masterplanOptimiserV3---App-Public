@@ -14,11 +14,30 @@ from app.api.v1.app_settings import (
     set_publish_target,
     set_shortcuts,
 )
+from app.api.v1.events import (
+    PdfExportSettingsUpdate,
+    get_event_pdf_export_settings,
+    update_event_pdf_export_settings,
+)
 from app.api.v1.capabilities import CapabilityCreate, create_capability, get_capabilities
 from app.api.v1.persons import get_persons
+from app.api.v1.publish_state import (
+    EventPublishStateSavePayload,
+    get_event_publish_state,
+    save_event_publish_state,
+)
 from app.api.v1.task_templates import TaskTemplateCreate, create_template
 from app.db.database import Base
-from app.models import AppSettings, Capability, CapabilityType, Event, Person, PersonCapability, TaskType
+from app.models import (
+    AppSettings,
+    Capability,
+    CapabilityType,
+    Event,
+    EventPublishState,
+    Person,
+    PersonCapability,
+    TaskType,
+)
 
 
 @pytest.fixture()
@@ -39,42 +58,149 @@ def db_session():
 
 
 @pytest.mark.asyncio
-async def test_publish_target_defaults_to_none_and_round_trips_valid_targets(db_session):
+async def test_publish_targets_default_empty_and_round_trip_combinations(db_session):
     default_response = await get_publish_target(db=db_session)
-    assert default_response.target == "none"
+    assert default_response.targets == []
 
-    for target in ("none", "google", "mp-backend", "both"):
+    for targets in (
+        [],
+        ["google"],
+        ["mp-backend"],
+        ["pdf"],
+        ["google", "mp-backend"],
+        ["google", "pdf"],
+        ["mp-backend", "pdf"],
+        ["google", "mp-backend", "pdf"],
+    ):
         saved = await set_publish_target(
-            PublishTargetPayload(target=target),
+            PublishTargetPayload(targets=targets),
             db=db_session,
         )
         loaded = await get_publish_target(db=db_session)
-        assert saved.target == target
-        assert loaded.target == target
+        assert saved.targets == targets
+        assert loaded.targets == targets
 
 
 @pytest.mark.asyncio
-async def test_publish_target_rejects_invalid_targets(db_session):
+async def test_publish_target_rejects_duplicate_targets(db_session):
     with pytest.raises(HTTPException) as exc:
         await set_publish_target(
-            PublishTargetPayload(target="server"),
+            PublishTargetPayload(targets=["pdf", "pdf"]),
             db=db_session,
         )
 
     assert exc.value.status_code == 400
-    assert "none" in exc.value.detail
+    assert "unique" in exc.value.detail
 
 
 @pytest.mark.asyncio
-async def test_publish_target_treats_blank_or_unknown_stored_values_as_none(db_session):
+async def test_publish_target_translates_legacy_scalars_and_unknown_values(db_session):
     db_session.add(AppSettings(key="publish_target", value=""))
     db_session.commit()
-    assert (await get_publish_target(db=db_session)).target == "none"
+    assert (await get_publish_target(db=db_session)).targets == []
 
     row = db_session.query(AppSettings).filter(AppSettings.key == "publish_target").first()
+    row.value = "both"
+    db_session.commit()
+    assert (await get_publish_target(db=db_session)).targets == ["google", "mp-backend"]
+
     row.value = "server"
     db_session.commit()
-    assert (await get_publish_target(db=db_session)).target == "none"
+    assert (await get_publish_target(db=db_session)).targets == []
+
+
+@pytest.mark.asyncio
+async def test_pdf_title_defaults_to_event_name_and_preserves_other_metadata(db_session):
+    event = Event(
+        name="Synthetic Assembly",
+        location="Test Hall",
+        start_date=date(2032, 4, 21),
+        end_date=date(2032, 4, 24),
+        meta_data={"day_aliases": {"2032-04-21": "Build"}},
+    )
+    db_session.add(event)
+    db_session.commit()
+    db_session.refresh(event)
+
+    default = await get_event_pdf_export_settings(event.id, db=db_session)
+    assert default == {"title": "Synthetic Assembly", "customised": False}
+
+    saved = await update_event_pdf_export_settings(
+        event.id,
+        PdfExportSettingsUpdate(title="  Field   Operations  "),
+        db=db_session,
+    )
+    assert saved == {"title": "Field Operations", "customised": True}
+    db_session.refresh(event)
+    assert event.meta_data == {
+        "day_aliases": {"2032-04-21": "Build"},
+        "pdf_export_title": "Field Operations",
+    }
+
+
+@pytest.mark.asyncio
+async def test_publish_state_round_trips_destination_array_and_reads_legacy_scalar(db_session):
+    event = Event(
+        name="Synthetic Assembly",
+        location="Test Hall",
+        start_date=date(2032, 4, 21),
+        end_date=date(2032, 4, 24),
+    )
+    db_session.add(event)
+    db_session.commit()
+    db_session.refresh(event)
+
+    saved = await save_event_publish_state(
+        event.id,
+        EventPublishStateSavePayload(
+            last_publish_targets=["google", "mp-backend", "pdf"],
+            last_publish_result_summary="All destinations succeeded.",
+        ),
+        db=db_session,
+    )
+    assert saved.last_publish_targets == ["google", "mp-backend", "pdf"]
+
+    row = (
+        db_session.query(EventPublishState)
+        .filter(EventPublishState.event_id == event.id)
+        .one()
+    )
+    assert row.last_publish_target == '["google","mp-backend","pdf"]'
+    row.last_publish_target = "both"
+    db_session.commit()
+
+    loaded = await get_event_publish_state(event.id, db=db_session)
+    assert loaded.last_publish_targets == ["google", "mp-backend"]
+    assert loaded.last_publish_target == "both"
+
+
+@pytest.mark.asyncio
+async def test_publish_state_accepts_retired_scalar_request_without_weakening_pdf_array(db_session):
+    event = Event(
+        name="Synthetic Assembly",
+        location="Test Hall",
+        start_date=date(2032, 4, 21),
+        end_date=date(2032, 4, 24),
+    )
+    db_session.add(event)
+    db_session.commit()
+    db_session.refresh(event)
+
+    legacy = await save_event_publish_state(
+        event.id,
+        EventPublishStateSavePayload(last_publish_target="both"),
+        db=db_session,
+    )
+    assert legacy.last_publish_targets == ["google", "mp-backend"]
+    assert legacy.last_publish_target == "both"
+
+    pdf = await save_event_publish_state(
+        event.id,
+        EventPublishStateSavePayload(last_publish_targets=["google", "pdf"]),
+        db=db_session,
+    )
+    assert pdf.last_publish_targets == ["google", "pdf"]
+    assert pdf.last_publish_target is None
 
 
 @pytest.mark.asyncio

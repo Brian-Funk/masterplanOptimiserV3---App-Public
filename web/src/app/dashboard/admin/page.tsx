@@ -46,7 +46,7 @@ export default function AdminPage() {
   const [personCount, setPersonCount] = useState<number | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [locationCount, setLocationCount] = useState<number | null>(null);
-  const [publishTarget, setPublishTarget] = useState<PublishTarget>("none");
+  const [publishTarget, setPublishTarget] = useState<PublishTarget>([]);
   const [optimisationJobs, setOptimisationJobs] = useState<JobSummary[]>([]);
   const [publishedScheduleFingerprint, setPublishedScheduleFingerprint] =
     useState<string | null>(null);
@@ -79,7 +79,7 @@ export default function AdminPage() {
       setPersonCount(null);
       setPeople([]);
       setLocationCount(null);
-      setPublishTarget("none");
+      setPublishTarget([]);
       setOptimisationJobs([]);
       setPublishedScheduleFingerprint(null);
       setPublishedScheduleScope(null);
@@ -121,8 +121,8 @@ export default function AdminPage() {
       );
       setPublishTarget(
         publishResult.status === "fulfilled"
-          ? publishResult.value.target
-          : "none",
+          ? publishResult.value.targets
+          : [],
       );
       setOptimisationJobs(
         jobsResult.status === "fulfilled" ? jobsResult.value.jobs : [],
@@ -282,9 +282,9 @@ export default function AdminPage() {
 
     if (itemById.get("publishing")?.level !== "ready") {
       actions.publishing = {
-        label: publishTarget === "none" ? "Configure" : "Open schedule",
+        label: publishTarget.length === 0 ? "Configure" : "Open schedule",
         onClick: () => {
-          if (publishTarget === "none") {
+          if (publishTarget.length === 0) {
             router.push("/dashboard/settings?section=publish-target");
             return;
           }

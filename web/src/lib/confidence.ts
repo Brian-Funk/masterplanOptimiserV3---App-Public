@@ -113,9 +113,18 @@ export function getEventStatusConfidence(status?: string | null): ConfidenceDesc
   }
 }
 
-/** Convert a publish target setting into a confidence state. */
-export function getPublishTargetConfidence(target?: string | null): ConfidenceDescriptor {
-  if (!target || target === "none") {
+/** Convert a publish-target set into a confidence state. */
+export function getPublishTargetConfidence(
+  target?: string | string[] | null,
+): ConfidenceDescriptor {
+  const targets = Array.isArray(target)
+    ? target.filter((item) => item === "google" || item === "mp-backend" || item === "pdf")
+    : target === "both"
+      ? ["google", "mp-backend"]
+      : target && target !== "none"
+        ? [target]
+        : [];
+  if (targets.length === 0) {
     return {
       level: "blocked",
       label: "Publish Target Missing",
@@ -123,26 +132,13 @@ export function getPublishTargetConfidence(target?: string | null): ConfidenceDe
     };
   }
 
-  if (target === "google") {
-    return {
-      level: "ready",
-      label: "Google Calendar",
-      description: "Publishing is configured for Google Calendar.",
-    };
-  }
-
-  if (target === "mp-backend") {
-    return {
-      level: "ready",
-      label: "MP-Backend Server",
-      description: "Publishing is configured for the web server.",
-    };
-  }
-
+  const labels = targets.map((item) =>
+    item === "google" ? "Google Calendar" : item === "mp-backend" ? "MP-Backend" : "PDF",
+  );
   return {
     level: "ready",
-    label: "Google Calendar and MP-Backend",
-    description: "Publishing is configured for both targets.",
+    label: labels.join(", "),
+    description: `Publishing is configured for ${labels.join(", ")}.`,
   };
 }
 

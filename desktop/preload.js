@@ -22,6 +22,16 @@ contextBridge.exposeInMainWorld('electron', {
   /** Add renderer-side errors to the diagnostic log buffer. */
   recordRendererError: (payload) => ipcRenderer.invoke('record-renderer-error', payload),
 
+  /** Read or choose the workstation-local PDF export folder. */
+  getPdfExportDirectory: () => ipcRenderer.invoke('get-pdf-export-directory'),
+  choosePdfExportDirectory: () => ipcRenderer.invoke('choose-pdf-export-directory'),
+  clearPdfExportDirectory: () => ipcRenderer.invoke('clear-pdf-export-directory'),
+
+  /** Render one structured Optimised Schedule payload into the configured folder. */
+  exportSchedulePdf: (payload) => ipcRenderer.invoke('export-schedule-pdf', payload),
+  getPdfExportJob: (jobId) => ipcRenderer.invoke('get-pdf-export-job', jobId),
+  notifyPdfExportReady: (jobId) => ipcRenderer.invoke('notify-pdf-export-ready', jobId),
+
   /** Toggle the current Electron BrowserWindow fullscreen state. */
   setWindowFullscreen: (fullscreen) => ipcRenderer.invoke('set-window-fullscreen', Boolean(fullscreen)),
 

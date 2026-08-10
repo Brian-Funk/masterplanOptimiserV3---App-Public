@@ -5,6 +5,7 @@ import {
   type DayPublishStatus,
 } from "@/lib/eventStatusSummary";
 import { formatStatusTimestamp } from "@/lib/statusTimestamps";
+import { getPublishTargetsLabel, normalisePublishTargets } from "@/lib/publishTargets";
 
 export type PublishPreviewTarget = "google_calendar" | "mp_backend" | "both";
 export type PublishPreviewScope = "selected_day" | "all_days";
@@ -34,7 +35,7 @@ export interface DayPublishPreview {
 }
 
 export interface PublishPreview {
-  target: PublishPreviewTarget | null;
+  target: PublishTarget;
   targetLabel: string;
   scope: PublishPreviewScope;
   scopeLabel: string;
@@ -67,31 +68,25 @@ export interface PublishPreviewInput {
   now?: Date;
 }
 
-/** Convert the configured app publish target into the preview target model. */
-export function toPublishPreviewTarget(
-  target: PublishTarget,
-): PublishPreviewTarget | null {
-  if (target === "google") return "google_calendar";
-  if (target === "mp-backend") return "mp_backend";
-  if (target === "both") return "both";
+/** Translate a retired scalar target for compatibility with existing clients. */
+export function toPublishPreviewTarget(target: unknown): PublishPreviewTarget | null {
+  const targets = normalisePublishTargets(target);
+  if (targets.length === 1 && targets[0] === "google") return "google_calendar";
+  if (targets.length === 1 && targets[0] === "mp-backend") return "mp_backend";
+  if (targets.length === 2 && !targets.includes("pdf")) return "both";
   return null;
 }
 
 /** Return a non-sensitive label for the publish destination. */
-export function getPublishTargetLabel(
-  target: PublishPreviewTarget | null,
-): string {
-  if (target === "google_calendar") return "Google Calendar";
-  if (target === "mp_backend") return "MP-Backend";
-  if (target === "both") return "Google Calendar and MP-Backend";
-  return "No publish target";
+export function getPublishTargetLabel(target: unknown): string {
+  return getPublishTargetsLabel(normalisePublishTargets(target));
 }
 
 /** Build the low-noise confirmation model shown before external publishing. */
 export function derivePublishPreview(
   input: PublishPreviewInput,
 ): PublishPreview {
-  const target = toPublishPreviewTarget(input.publishTarget);
+  const target = normalisePublishTargets(input.publishTarget);
   const targetLabel = getPublishTargetLabel(target);
   const dayIds = resolvePreviewDayIds(input);
   const tasksByDay = groupTasksByDay(input.taskInstances);
@@ -111,7 +106,7 @@ export function derivePublishPreview(
 
   const publishDays = days.filter((day) => day.willPublish);
   const blockingReasons: string[] = [];
-  if (!target) {
+  if (target.length === 0) {
     blockingReasons.push("No publish target is configured.");
   }
   if (publishDays.length === 0) {
@@ -136,7 +131,7 @@ export function derivePublishPreview(
     publishDays.map((day) => day.lastPublishedAt),
   );
   const warnings = buildWarnings(days, manualEditCount, conflictCount, skippedDays);
-  const canPublish = target !== null && publishDays.length > 0;
+  const canPublish = target.length > 0 && publishDays.length > 0;
   const scopeLabel =
     input.scope === "selected_day"
       ? `${days[0]?.dayLabel ?? "Selected day"} only`
@@ -161,7 +156,7 @@ export function derivePublishPreview(
     blockingReasons,
     warnings,
     summary: buildSummary(input.scope, publishDays, days, targetLabel),
-    explanation: target
+    explanation: target.length > 0
       ? buildExplanation(input.scope, publishDays, {
           totalTasksToPublish,
           skippedDays,

@@ -12,6 +12,7 @@ import {
   mpBackendApi,
   GoogleCalendarConnection,
   GoogleCalendar,
+  type PublishDestination,
   type PublishTarget,
 } from "@/lib/api";
 import { getApiUrl } from "@/lib/environment";
@@ -33,6 +34,7 @@ import {
   ExternalLink,
   RefreshCw,
   FileOutput,
+  FileDown,
   Monitor,
   Database,
   KeyRound,
@@ -60,6 +62,8 @@ import { SolverSettingsSection } from "./components/SolverSettingsSection";
 import { MpBackendSection } from "./components/MpBackendSection";
 import { ShortcutSettingsSection } from "./components/ShortcutSettingsSection";
 import { ProcessorEvidenceSection } from "./components/ProcessorEvidenceSection";
+import { PdfExportSection } from "./components/PdfExportSection";
+import { getPdfExportDirectory, isPdfExportAvailable } from "@/lib/pdfExport";
 
 interface ThemeSettings {
   name: string;
@@ -84,6 +88,7 @@ type SettingsSection =
   | "google-oauth"
   | "calendar"
   | "mp-backend"
+  | "pdf"
   | "publish-target"
   | "format"
   | "solver"
@@ -102,6 +107,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   "google-oauth",
   "calendar",
   "mp-backend",
+  "pdf",
   "publish-target",
   "format",
   "solver",
@@ -526,8 +532,21 @@ export default function SettingsPage() {
   const [mpBackendConfigured, setMpBackendConfigured] = useState(false);
 
   // ── Publish target state ──────────────────────────────────────────
-  const [publishTarget, setPublishTarget] = useState<PublishTarget>("none");
+  const [publishTarget, setPublishTarget] = useState<PublishTarget>([]);
   const [publishTargetLoading, setPublishTargetLoading] = useState(false);
+  const [pdfReady, setPdfReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getPdfExportDirectory().then((directory) => {
+      if (!cancelled) {
+        setPdfReady(Boolean(selectedEventId && isPdfExportAvailable() && directory.available));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEventId]);
 
   useEffect(() => {
     const nextSection = searchParams.get("section") as SettingsSection | null;
@@ -594,17 +613,20 @@ export default function SettingsPage() {
   const loadPublishTarget = async () => {
     try {
       const data = await appSettingsApi.getPublishTarget();
-      setPublishTarget(data.target);
+      setPublishTarget(data.targets);
     } catch {
-      setPublishTarget("none");
+      setPublishTarget([]);
     }
   };
 
-  const handlePublishTargetChange = async (target: PublishTarget) => {
+  const handlePublishTargetChange = async (destination: PublishDestination) => {
+    const target = publishTarget.includes(destination)
+      ? publishTarget.filter((item) => item !== destination)
+      : [...publishTarget, destination];
     setPublishTargetLoading(true);
     try {
-      await appSettingsApi.setPublishTarget(target);
-      setPublishTarget(target);
+      const saved = await appSettingsApi.setPublishTarget(target);
+      setPublishTarget(saved.targets);
     } catch {
       // revert on failure
     } finally {
@@ -718,6 +740,13 @@ export default function SettingsPage() {
       subgroup: "MP-Backend",
     },
     {
+      key: "pdf",
+      label: "PDF Export",
+      icon: <FileDown className="w-4 h-4" />,
+      group: "Integrations",
+      subgroup: "PDF",
+    },
+    {
       key: "publish-target",
       label: "Publish Target",
       icon: <Send className="w-4 h-4" />,
@@ -758,40 +787,32 @@ export default function SettingsPage() {
   ];
 
   const publishTargetOptions: Array<{
-    value: PublishTarget;
+    value: PublishDestination;
     label: string;
     description: string;
     enabled: boolean;
     disabledHint: string;
   }> = [
     {
-      value: "none",
-      label: "None",
-      description:
-        "Publish target not configured. Select a target to enable publishing.",
-      enabled: true,
-      disabledHint: "",
-    },
-    {
       value: "google",
-      label: "Google Calendar only",
+      label: "Google Calendar",
       description: "Publish tasks as Google Calendar events.",
       enabled: calConnections.some((c) => !!c.calendar_id),
       disabledHint: "Connect a Google Calendar first.",
     },
     {
       value: "mp-backend",
-      label: "MP-Backend Server only",
+      label: "MP-Backend Server",
       description: "Publish to the web server for participants.",
       enabled: mpBackendConfigured,
       disabledHint: "Configure the MP-Backend connection first.",
     },
     {
-      value: "both",
-      label: "Both",
-      description: "Publish to Google Calendar and the MP-Backend server.",
-      enabled: calConnections.some((c) => !!c.calendar_id) && mpBackendConfigured,
-      disabledHint: "Both Google Calendar and MP-Backend must be configured.",
+      value: "pdf",
+      label: "PDF",
+      description: "Create a local light-mode A4 portrait schedule PDF with readable task details.",
+      enabled: pdfReady,
+      disabledHint: "Choose an available PDF output folder first.",
     },
   ];
 
@@ -1178,6 +1199,13 @@ export default function SettingsPage() {
               <MpBackendSection />
             </div>
           )}
+          {section === "pdf" && (
+            <PdfExportSection
+              eventId={selectedEvent?.id}
+              eventName={selectedEvent?.name}
+              onReadinessChange={setPdfReady}
+            />
+          )}
           {/* ── Publish Target ─────────────────────────────────────── */}
           {section === "publish-target" && (
             <div className="space-y-6">
@@ -1186,14 +1214,16 @@ export default function SettingsPage() {
                   Publish Target
                 </h3>
                 <p className="text-sm text-foreground-muted">
-                  Choose where to publish the schedule when you press
-                  &quot;Publish&quot;.
+                  Select any combination of destinations. Leave all three
+                  unselected to keep publishing unconfigured.
                 </p>
               </div>
 
               <Card>
                 <div className="p-4 space-y-3">
                   {publishTargetOptions.map((option) => {
+                    const selected = publishTarget.includes(option.value);
+                    const disabled = (!option.enabled && !selected) || publishTargetLoading;
                     const confidence: ConfidenceDescriptor = option.enabled
                       ? getPublishTargetConfidence(option.value)
                       : {
@@ -1206,17 +1236,17 @@ export default function SettingsPage() {
                       <label
                         key={option.value}
                         className={`flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${
-                          publishTarget === option.value
+                          selected
                             ? `${confidenceClasses(confidence.level, "border")} ${confidenceClasses(confidence.level, "panel")}`
                             : "border-bordercl hover:border-bordercl-strong"
-                        } ${!option.enabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                        } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
                       >
                         <input
-                          type="radio"
+                          type="checkbox"
                           name="publish-target"
                           value={option.value}
-                          checked={publishTarget === option.value}
-                          disabled={!option.enabled || publishTargetLoading}
+                          checked={selected}
+                          disabled={disabled}
                           onChange={() =>
                             handlePublishTargetChange(option.value)
                           }

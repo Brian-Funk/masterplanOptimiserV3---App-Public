@@ -10,6 +10,7 @@ import {
   TemplateVariable,
   googleCalendarApi,
 } from "@/lib/api";
+import { sanitiseRichTemplateHtml } from "@/lib/richTemplate";
 import {
   Save,
   Clock,
@@ -693,7 +694,7 @@ function CalendarEventPreview({
     template.replace(/\{([^}]+)\}/g, (_, key) => sampleVars[key] || `{${key}}`);
 
   const previewTitle = interpolate(title || "{title}");
-  const previewDesc = interpolate(description || "");
+  const previewDesc = sanitiseRichTemplateHtml(interpolate(description || ""));
 
   return (
     <div className="rounded-lg overflow-hidden border border-bordercl shadow-sm">

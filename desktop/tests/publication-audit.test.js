@@ -10,6 +10,7 @@ const {
   auditHistoricalPaths,
   auditPublication,
   auditText,
+  auditWorkflowSecurity,
   forbiddenPathReason,
   verifyScannerFixture,
 } = require('../scripts/audit-publication');
@@ -141,4 +142,28 @@ test('Desktop CI audits policy-only changes instead of treating them as irreleva
   ]) {
     assert.ok(workflow.includes(required), `missing change-detector pattern: ${required}`);
   }
+});
+
+test('workflow audit rejects mutable Actions and unhashed documentation installs', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-opt-workflow-security-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  write(root, '.github/workflows/docs.yml', [
+    'permissions:',
+    '  contents: read',
+    '  pages: write',
+    '  id-token: write',
+    'steps:',
+    '  - name: Checkout',
+    '    uses: actions/checkout@v5',
+    '  - run: python -m pip install -r docs/requirements.txt',
+  ].join('\n'));
+  write(root, 'docs/requirements.lock.txt', 'mkdocs==1.6.1\n');
+
+  const failures = [];
+  auditWorkflowSecurity(root, failures);
+
+  assert.ok(failures.some((failure) => failure.includes('full commit SHA')));
+  assert.ok(failures.some((failure) => failure.includes('deployment job')));
+  assert.ok(failures.some((failure) => failure.includes('hash-locked dependency set')));
+  assert.ok(failures.some((failure) => failure.includes('does not contain package hashes')));
 });

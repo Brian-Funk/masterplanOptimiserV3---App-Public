@@ -31,6 +31,12 @@ class EventCalendarUpdate(BaseModel):
 
     google_calendar_id: Optional[str] = None
 
+
+class PdfExportSettingsUpdate(BaseModel):
+    """Event-specific presentation title used for local PDF exports."""
+
+    title: str
+
 @router.get("/")
 async def get_events(
     db: Session = Depends(get_db),
@@ -107,6 +113,42 @@ async def update_event_calendar(
     db.commit()
     db.refresh(event)
     return {"status": "ok", "google_calendar_id": event.google_calendar_id}
+
+
+@router.get("/{event_id}/pdf-export-settings")
+async def get_event_pdf_export_settings(
+    event_id: int,
+    db: Session = Depends(get_db),
+):
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    metadata = event.meta_data if isinstance(event.meta_data, dict) else {}
+    configured = metadata.get("pdf_export_title")
+    title = configured.strip() if isinstance(configured, str) else ""
+    return {"title": title or event.name, "customised": bool(title)}
+
+
+@router.put("/{event_id}/pdf-export-settings")
+async def update_event_pdf_export_settings(
+    event_id: int,
+    payload: PdfExportSettingsUpdate,
+    db: Session = Depends(get_db),
+):
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    title = " ".join(payload.title.split()).strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="PDF title must not be blank")
+    if len(title) > 120:
+        raise HTTPException(status_code=400, detail="PDF title must be 120 characters or fewer")
+    metadata = dict(event.meta_data) if isinstance(event.meta_data, dict) else {}
+    metadata["pdf_export_title"] = title
+    event.meta_data = metadata
+    db.commit()
+    db.refresh(event)
+    return {"title": title, "customised": True}
 
 @router.delete("/{event_id}")
 async def delete_event(

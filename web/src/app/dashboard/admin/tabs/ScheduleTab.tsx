@@ -20,6 +20,7 @@ import {
   googleCalendarApi,
   mpBackendApi,
   appSettingsApi,
+  eventsApi,
   type PublishTarget,
 } from "@/lib/api";
 import Calendar, { CalendarTask } from "@/components/Calendar";
@@ -42,6 +43,11 @@ import {
   mergeRuntimeGroupFieldDisplay,
   resolveRuntimeGroupAssignmentsForFields,
 } from "@/lib/groupMembers";
+import {
+  getPublishTargetsLabel,
+  hasPublishDestination,
+} from "@/lib/publishTargets";
+import { exportSchedulePdf } from "@/lib/pdfExport";
 
 export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
   const { addToast } = useToast();
@@ -67,7 +73,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
     personName: string;
   } | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
-  const [publishTarget, setPublishTarget] = useState<PublishTarget>("none");
+  const [publishTarget, setPublishTarget] = useState<PublishTarget>([]);
   const [eventStatus, setEventStatus] = useState<string>(
     selectedEvent?.status || "draft",
   );
@@ -83,7 +89,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
   useEffect(() => {
     appSettingsApi
       .getPublishTarget()
-      .then((pt) => setPublishTarget(pt.target))
+      .then((pt) => setPublishTarget(pt.targets))
       .catch(() => {});
   }, []);
 
@@ -470,14 +476,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
     }
   };
 
-  const publishTargetLabel =
-    publishTarget === "google"
-      ? "Google Calendar"
-      : publishTarget === "mp-backend"
-        ? "MP-Backend Server"
-        : publishTarget === "none"
-          ? "None"
-          : "Google Calendar & MP-Backend Server";
+  const publishTargetLabel = getPublishTargetsLabel(publishTarget);
   const eventConfidence = getEventStatusConfidence(eventStatus);
   const publishConfidence = getPublishTargetConfidence(publishTarget);
 
@@ -485,7 +484,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
   const handlePublish = async () => {
     if (!selectedEvent) return;
 
-    if (publishTarget === "none") {
+    if (publishTarget.length === 0) {
       addToast(
         "No publish target configured. Go to Settings \u2192 Publish Target to set one up.",
         "error",
@@ -500,6 +499,9 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
     )
       return;
 
+    let pdfFileName = "";
+    let googlePublished = false;
+    let mpBackendPublished = false;
     setIsPublishing(true);
     try {
       // Use the publish target from state (loaded on mount)
@@ -507,11 +509,44 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
       const errors: string[] = [];
       let gcEventsCreated = 0;
 
+      if (hasPublishDestination(target, "pdf")) {
+        const settings = await eventsApi.getPdfExportSettings(selectedEvent.id);
+        const eventDates: string[] = [];
+        const cursor = new Date(`${selectedEvent.start_date}T00:00:00`);
+        const end = new Date(`${selectedEvent.end_date}T00:00:00`);
+        while (cursor <= end) {
+          const day = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+          if (tasks.some((task) => isTaskInWorkingDay(task, day, scheduleDayBoundary))) {
+            eventDates.push(day);
+          }
+          cursor.setDate(cursor.getDate() + 1);
+        }
+        const result = await exportSchedulePdf({
+          title: settings.title,
+          eventId: selectedEvent.id,
+          eventName: selectedEvent.name,
+          eventLocation: selectedEvent.location || "",
+          eventStartDate: selectedEvent.start_date,
+          eventEndDate: selectedEvent.end_date,
+          scheduleDayRange: selectedEvent.meta_data?.schedule_day_range ?? null,
+          scheduleDayBoundary,
+          days: eventDates.map((date) => ({
+            date,
+            dayLabel: formatDateWithWeekday(date),
+            tasks: tasks.filter((task) =>
+              isTaskInWorkingDay(task, date, scheduleDayBoundary),
+            ),
+          })),
+        });
+        pdfFileName = result.fileName;
+      }
+
       // Publish to Google Calendar (if target includes it)
-      if (target === "google" || target === "both") {
+      if (hasPublishDestination(target, "google")) {
         try {
           const gcResult = await googleCalendarApi.publish(selectedEvent.id);
           gcEventsCreated = gcResult.events_created || 0;
+          googlePublished = true;
         } catch (gcError: any) {
           const msg =
             gcError instanceof Error ? gcError.message : String(gcError);
@@ -526,9 +561,10 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
       }
 
       // Publish to MP-Backend server (if target includes it)
-      if (target === "mp-backend" || target === "both") {
+      if (hasPublishDestination(target, "mp-backend")) {
         try {
-          const mpResult = await mpBackendApi.publish(selectedEvent.id);
+          await mpBackendApi.publish(selectedEvent.id);
+          mpBackendPublished = true;
         } catch (mpError: any) {
           const msg =
             mpError instanceof Error ? mpError.message : String(mpError);
@@ -543,7 +579,17 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
       }
 
       if (errors.length > 0) {
-        addToast(`Publish failed:\n${errors.join("\n")}`, "error");
+        const completed = [
+          pdfFileName ? `PDF ${pdfFileName}` : "",
+          googlePublished ? "Google Calendar" : "",
+          mpBackendPublished ? "MP-Backend" : "",
+        ].filter(Boolean);
+        addToast(
+          completed.length
+            ? `Publish partially completed. ${completed.join(", ")} succeeded. Failed: ${errors.join(", ")}`
+            : `Publish failed:\n${errors.join("\n")}`,
+          "error",
+        );
       } else {
         await eventStatusApi.update(selectedEvent.id, "published");
         setEventStatus("published");
@@ -551,12 +597,21 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
           gcEventsCreated > 0
             ? ` (${gcEventsCreated} Google Calendar event(s) created)`
             : "";
-        addToast(`Published to ${publishTargetLabel}!${detail}`, "success");
+        const pdfDetail = pdfFileName ? ` PDF ${pdfFileName} created.` : "";
+        addToast(`Published to ${publishTargetLabel}!${detail}${pdfDetail}`, "success");
       }
     } catch (error) {
       console.error("Failed to publish:", error);
+      const completed = [
+        pdfFileName ? `PDF ${pdfFileName}` : "",
+        googlePublished ? "Google Calendar" : "",
+        mpBackendPublished ? "MP-Backend" : "",
+      ].filter(Boolean);
+      const failure = error instanceof Error ? error.message : "Unknown error";
       addToast(
-        `Failed to publish: ${error instanceof Error ? error.message : "Unknown error"}`,
+        completed.length
+          ? `Publish partially completed. ${completed.join(", ")} succeeded. Failed: ${failure}`
+          : `Failed to publish: ${failure}`,
         "error",
       );
     } finally {

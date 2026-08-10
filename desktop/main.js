@@ -32,6 +32,14 @@ const {
   prepareBackendEnvironmentFile,
   prepareDesktopUserData,
 } = require('./user-data-paths');
+const {
+  buildPdfPrintOptions,
+  clearPdfExportSettings,
+  describePdfExportDirectory,
+  nextPdfPath,
+  validatePdfExportPayload,
+  writePdfExportSettings,
+} = require('./pdf-export');
 
 const appVersion = require('./package.json').version;
 const smokeTestMode = process.env.MP_DESKTOP_SMOKE_TEST === '1';
@@ -50,6 +58,7 @@ let startupStepOverrides = {};
 let desktopDataPaths;
 const fullscreenEventWindows = new WeakSet();
 const ownedProcesses = createOwnedProcessRegistry();
+const pdfExportJobs = new Map();
 
 const diagnosticLogs = { main: [], backend: [], frontend: [], renderer: [] };
 const MAX_LOG_LINES = 1000;
@@ -339,6 +348,81 @@ function recordRendererDiagnostic(payload = {}) {
     : '';
 
   appendDiagnosticLog('renderer', 'error', `${source}: ${message}${stack}${extra}`);
+}
+
+function waitForPdfDocument(jobId, timeoutMs = 30000) {
+  const job = pdfExportJobs.get(jobId);
+  if (!job) return Promise.reject(new Error('PDF export job is unavailable.'));
+  if (job.renderReady) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (pdfExportJobs.get(jobId) === job) job.readyReject = null;
+      reject(new Error('The PDF document did not become ready in time.'));
+    }, timeoutMs);
+    job.readyResolve = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    job.readyReject = (error) => {
+      clearTimeout(timer);
+      reject(error);
+    };
+  });
+}
+
+async function exportSchedulePdf(payload) {
+  const directory = describePdfExportDirectory(getDesktopDataPaths().userDataDir);
+  if (!directory.available || !directory.outputDirectory) {
+    throw new Error('Choose an available PDF output folder in Settings first.');
+  }
+  const validated = validatePdfExportPayload(payload);
+  const jobId = crypto.randomUUID();
+  const pdfWindow = new BrowserWindow({
+    width: 1400,
+    height: 990,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+  const job = {
+    payload: validated,
+    webContentsId: pdfWindow.webContents.id,
+    readyResolve: null,
+    readyReject: null,
+    renderReady: false,
+  };
+  pdfExportJobs.set(jobId, job);
+  const printUrl = `${FRONTEND_URL}/pdf-export?job=${encodeURIComponent(jobId)}`;
+  pdfWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  pdfWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (navigationUrl !== printUrl) event.preventDefault();
+  });
+
+  try {
+    await pdfWindow.loadURL(printUrl);
+    await waitForPdfDocument(jobId);
+    const pdf = await pdfWindow.webContents.printToPDF(buildPdfPrintOptions());
+    let outputPath = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const candidate = nextPdfPath(directory.outputDirectory, validated.title);
+      try {
+        fs.writeFileSync(candidate, pdf, { flag: 'wx', mode: 0o600 });
+        outputPath = candidate;
+        break;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
+      }
+    }
+    if (!outputPath) throw new Error('Could not allocate a unique PDF filename.');
+    return { success: true, path: outputPath, fileName: path.basename(outputPath) };
+  } finally {
+    pdfExportJobs.delete(jobId);
+    if (!pdfWindow.isDestroyed()) pdfWindow.destroy();
+  }
 }
 
 function handleMainProcessFailure(label, error) {
@@ -993,6 +1077,65 @@ ipcMain.handle('save-log-dump', async (event, payload) => {
     console.error('Failed to save log dump:', error);
     return { success: false, error: error.message };
   }
+});
+
+// ---------------------------------------------------------------------------
+// IPC: local PDF publishing
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('get-pdf-export-directory', async (event) => {
+  assertTrustedIpcSender(event);
+  return describePdfExportDirectory(getDesktopDataPaths().userDataDir);
+});
+
+ipcMain.handle('choose-pdf-export-directory', async (event) => {
+  const senderWindow = getTrustedSenderWindow(event);
+  const result = await dialog.showOpenDialog(senderWindow, {
+    title: 'Choose PDF Export Folder',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || result.filePaths.length !== 1) {
+    return { cancelled: true, ...describePdfExportDirectory(getDesktopDataPaths().userDataDir) };
+  }
+  const outputDirectory = writePdfExportSettings(
+    getDesktopDataPaths().userDataDir,
+    result.filePaths[0],
+  );
+  return { cancelled: false, outputDirectory, available: true };
+});
+
+ipcMain.handle('clear-pdf-export-directory', async (event) => {
+  assertTrustedIpcSender(event);
+  clearPdfExportSettings(getDesktopDataPaths().userDataDir);
+  return { outputDirectory: null, available: false };
+});
+
+ipcMain.handle('get-pdf-export-job', async (event, jobId) => {
+  assertTrustedIpcSender(event);
+  const job = typeof jobId === 'string' ? pdfExportJobs.get(jobId) : null;
+  if (!job || job.webContentsId !== event.sender.id) {
+    throw new Error('PDF export job is unavailable for this window.');
+  }
+  return job.payload;
+});
+
+ipcMain.handle('notify-pdf-export-ready', async (event, jobId) => {
+  assertTrustedIpcSender(event);
+  const job = typeof jobId === 'string' ? pdfExportJobs.get(jobId) : null;
+  if (!job || job.webContentsId !== event.sender.id) {
+    throw new Error('PDF export readiness signal is invalid.');
+  }
+  job.renderReady = true;
+  if (job.readyResolve) {
+    job.readyResolve();
+    job.readyResolve = null;
+  }
+  return { success: true };
+});
+
+ipcMain.handle('export-schedule-pdf', async (event, payload) => {
+  assertTrustedIpcSender(event);
+  return exportSchedulePdf(payload);
 });
 
 function configureSessionSecurity() {
