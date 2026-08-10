@@ -1,11 +1,9 @@
 # Changes
 
-## Unreleased
+## 3.9.0 — 10 August 2026
 
-The source version is `3.8.2` solely to identify the reviewed security-scan
-baseline shared with the Server. It is not a release: do not create a tag,
-installer, checksum bundle or public changelog entry for this version. The next
-public release prepared from a qualified successor is `3.9.0`.
+This release promotes the reviewed `3.8.2` security-qualification baseline and
+the completed PDF publishing work to the next supported public Desktop release.
 
 ### Added
 
