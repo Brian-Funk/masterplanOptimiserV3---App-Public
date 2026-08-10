@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Bold, Italic, Link2, Underline, X } from "lucide-react";
 import { Button, Tooltip } from "@/components/ui";
+import { sanitiseRichTemplateHtml } from "@/lib/richTemplate";
 
 export type RichTemplateVariable = {
   name: string;
@@ -247,7 +248,7 @@ export function RichTemplateEditor({
     if (value === lastEmittedValueRef.current && document.activeElement === el) {
       return;
     }
-    const html = renderHtml(value || "");
+    const html = renderHtml(sanitiseRichTemplateHtml(value || ""));
     if (el.innerHTML !== html) el.innerHTML = html;
   }, [renderHtml, value]);
 

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.core.event_deletion import delete_event_scoped_data
 from app.core.identifier_validation import validate_machine_name
+from app.core.rich_template import validate_rich_template
 from app.models import (
     Assignment,
     AssignmentSource,
@@ -319,6 +320,52 @@ def _check_duplicate_ids(rows: list, label: str, path_prefix: str, errors: list[
         ))
 
 
+def _check_rich_template(
+    row: Any,
+    key: str,
+    path: str,
+    errors: list[ImportValidationIssue],
+) -> None:
+    """Add a blocking import issue for unsafe rich-template markup."""
+
+    if not isinstance(row, dict) or row.get(key) in (None, ""):
+        return
+    try:
+        validate_rich_template(row[key])
+    except ValueError as exc:
+        errors.append(_issue(
+            "error",
+            "Unsafe rich-text template",
+            f"This template contains unsupported or unsafe markup: {exc}.",
+            path,
+            issue_id=f"unsafe_rich_template_{path}",
+        ))
+
+
+def _check_imported_rich_templates(
+    global_data: dict,
+    events: list,
+    errors: list[ImportValidationIssue],
+) -> None:
+    for index, row in enumerate(global_data.get("calendar_export_formats", [])):
+        _check_rich_template(
+            row,
+            "description_template",
+            f"global_data.calendar_export_formats[{index}].description_template",
+            errors,
+        )
+    for event_index, event_data in enumerate(events):
+        if not isinstance(event_data, dict):
+            continue
+        for type_index, row in enumerate(event_data.get("session_element_types", [])):
+            _check_rich_template(
+                row,
+                "copy_template_html",
+                f"events[{event_index}].session_element_types[{type_index}].copy_template_html",
+                errors,
+            )
+
+
 def _has_value(row: dict, key: str) -> bool:
     """Return whether an imported row contains a non-empty value."""
     value = row.get(key)
@@ -454,6 +501,8 @@ def validate_import_payload(payload: Any) -> ImportValidationResult:
             "events",
         ))
         events = []
+
+    _check_imported_rich_templates(global_data, events, errors)
 
     first_event_name: Optional[str] = None
     first_start: Optional[str] = None

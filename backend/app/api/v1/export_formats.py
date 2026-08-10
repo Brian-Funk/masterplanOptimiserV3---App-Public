@@ -8,13 +8,14 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.db.database import get_db
 from app.models.calendar_export_format import CalendarExportFormat
 from app.models.task import TaskType
 from app.models.task_template import TaskTemplate
 from app.models.person import Person
+from app.core.rich_template import validate_rich_template
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,11 +35,21 @@ class ExportFormatCreate(BaseModel):
     description_template: str = ""
     color_id: Optional[str] = None
 
+    @field_validator("description_template")
+    @classmethod
+    def validate_description_template(cls, value: str) -> str:
+        return validate_rich_template(value) or ""
+
 
 class ExportFormatUpdate(BaseModel):
     title_template: Optional[str] = None
     description_template: Optional[str] = None
     color_id: Optional[str] = None
+
+    @field_validator("description_template")
+    @classmethod
+    def validate_description_template(cls, value: Optional[str]) -> Optional[str]:
+        return validate_rich_template(value)
 
 
 class ExportFormatResponse(BaseModel):
