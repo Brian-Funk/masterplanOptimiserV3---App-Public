@@ -140,6 +140,7 @@ type CalendarProps = {
   canNavigateNext?: boolean;
   masterplanMode?: boolean;
   presentationMode?: boolean;
+  pdfMode?: boolean;
   density?: CalendarDensity;
   onLayoutChange?: (
     taskId: number,
@@ -1263,6 +1264,7 @@ type DailyViewProps = {
   ) => void;
   masterplanMode?: boolean;
   presentationMode?: boolean;
+  pdfMode?: boolean;
   density?: CalendarDensity;
   onLayoutChange?: (
     taskId: number,
@@ -1296,6 +1298,7 @@ const DailyView: React.FC<DailyViewProps> = ({
   onPersonRightClick,
   masterplanMode = false,
   presentationMode = false,
+  pdfMode = false,
   density = "comfortable",
   onLayoutChange,
 }) => {
@@ -1482,11 +1485,20 @@ const DailyView: React.FC<DailyViewProps> = ({
   };
 
   const defaultDayRange = range;
-  const hourHeight = presentationMode
-    ? density === "compact"
-      ? 96
-      : 132
-    : 120;
+  const pdfHourHeight = Math.max(
+    32,
+    Math.min(
+      62,
+      520 / Math.max(defaultDayRange.endHour - defaultDayRange.startHour, 1),
+    ),
+  );
+  const hourHeight = pdfMode
+    ? pdfHourHeight
+    : presentationMode
+      ? density === "compact"
+        ? 96
+        : 132
+      : 120;
   const halfHourHeight = hourHeight / 2;
   const [startHour, setStartHour] = useState(defaultDayRange.startHour);
   const [endHour, setEndHour] = useState(defaultDayRange.endHour);
@@ -1792,6 +1804,7 @@ const DailyView: React.FC<DailyViewProps> = ({
           : "overflow-x-auto"
       }
       data-presentation-mode={presentationMode ? "true" : undefined}
+      data-pdf-mode={pdfMode ? "true" : undefined}
       data-calendar-density={density}
     >
       {/* Auto-fit toolbar */}
@@ -2681,6 +2694,7 @@ const Calendar: React.FC<CalendarProps> = ({
   onPersonRightClick,
   masterplanMode,
   presentationMode,
+  pdfMode,
   density = "comfortable",
   onLayoutChange,
 }) => {
@@ -2711,6 +2725,7 @@ const Calendar: React.FC<CalendarProps> = ({
       onPersonRightClick={onPersonRightClick}
       masterplanMode={masterplanMode}
       presentationMode={presentationMode}
+      pdfMode={pdfMode}
       density={density}
       onLayoutChange={onLayoutChange}
     />

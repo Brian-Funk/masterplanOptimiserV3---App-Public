@@ -5,11 +5,12 @@
   "license": "AGPL-3.0-only",
   "main": "main.js",
   "scripts": {
-    "test": "node --test tests/process-ownership.test.js tests/runtime-config.test.js tests/user-data-paths.test.js tests/integrity.test.js tests/manifest-generation.test.js tests/dependency-audit.test.js tests/smoke-mode.test.js tests/release-workflow.test.js tests/publication-audit.test.js",
+    "test": "node --test tests/process-ownership.test.js tests/runtime-config.test.js tests/user-data-paths.test.js tests/pdf-export.test.js tests/integrity.test.js tests/manifest-generation.test.js tests/dependency-audit.test.js tests/smoke-mode.test.js tests/release-workflow.test.js tests/publication-audit.test.js",
     "audit:security": "node scripts/audit-dependencies.js",
     "audit:publication": "node scripts/audit-publication.js",
     "audit:publication:history": "node scripts/audit-publication.js --history",
     "test:electron-ownership": "set MP_RUN_ELECTRON_INTEGRATION=1&& node --test tests/windows-electron-ownership.test.js",
+    "test:electron-pdf": "set MP_RUN_ELECTRON_PDF_INTEGRATION=1&& node --test tests/windows-electron-pdf.test.js",
     "test:packaged-smoke": "node scripts/smoke-packaged.js dist",
     "prebuild": "npm --prefix ../web run build && npm run verify:frontend",
     "start": "electron .",
@@ -33,6 +34,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "pdf-export.js",
       "startup-screen.js",
       "security-policy.js",
       "integrity.js",
