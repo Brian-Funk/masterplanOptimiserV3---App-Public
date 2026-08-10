@@ -57,6 +57,7 @@ async def test_event_export_redacts_publish_integrations(db_session):
         end_date=date(2026, 1, 2),
         google_calendar_id="calendar@example.com",
         mp_backend_url="https://example.com",
+        meta_data={"pdf_export_title": "Field Operations"},
     )
     db_session.add(event)
     db_session.commit()
@@ -66,6 +67,7 @@ async def test_event_export_redacts_publish_integrations(db_session):
 
     assert "mp_backend_url" not in event_payload
     assert "google_calendar_id" not in event_payload
+    assert event_payload["meta_data"]["pdf_export_title"] == "Field Operations"
 
 
 def test_app_settings_encrypts_oauth_credentials_and_reads_plaintext(db_session):

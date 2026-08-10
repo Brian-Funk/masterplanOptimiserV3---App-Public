@@ -710,13 +710,13 @@ export function deriveConflictsItem(
 export function derivePublishingItem(
   input: EventStatusSummaryInput,
 ): EventStatusItem {
-  const publishTarget = input.publishTarget ?? "none";
+  const publishTarget = input.publishTarget ?? [];
   const taskInstances = input.taskInstances ?? [];
   const failedText = formatStatusTimestamp(input.publishFailedAt, {
     now: input.now,
   });
 
-  if (publishTarget === "none") {
+  if (publishTarget.length === 0) {
     return {
       id: "publishing",
       label: "Publishing",

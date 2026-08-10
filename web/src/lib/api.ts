@@ -4,6 +4,11 @@
  */
 
 import { getApiUrl } from "@/lib/environment";
+import type {
+  PublishDestination,
+  PublishTarget,
+} from "@/lib/publishTargets";
+export type { PublishDestination, PublishTarget } from "@/lib/publishTargets";
 
 const API_BASE = getApiUrl();
 
@@ -40,6 +45,7 @@ export interface Event {
       startHour: number;
       endHour: number;
     };
+    pdf_export_title?: string;
     [key: string]: any;
   };
 }
@@ -272,6 +278,38 @@ export const eventsApi = {
       throw new Error(
         `Failed to update event capabilities: ${response.statusText}`,
       );
+  },
+
+  /** Read the event-specific title used for local PDF schedule exports. */
+  getPdfExportSettings: async (
+    eventId: number,
+  ): Promise<{ title: string; customised: boolean }> => {
+    const response = await apiFetch(
+      `${API_BASE}/api/v1/events/${eventId}/pdf-export-settings`,
+    );
+    if (!response.ok)
+      throw new Error(`Failed to fetch PDF settings: ${response.statusText}`);
+    return response.json();
+  },
+
+  /** Save the event-specific PDF title without replacing other event metadata. */
+  setPdfExportSettings: async (
+    eventId: number,
+    title: string,
+  ): Promise<{ title: string; customised: boolean }> => {
+    const response = await apiFetch(
+      `${API_BASE}/api/v1/events/${eventId}/pdf-export-settings`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.detail || "Failed to save PDF settings");
+    }
+    return response.json();
   },
 };
 
@@ -1292,7 +1330,6 @@ export interface CapabilityType {
   updated_at?: string;
 }
 
-export type PublishTarget = "none" | "google" | "mp-backend" | "both";
 export type ShortcutOverrides = Record<string, string>;
 
 // Capability Types API
@@ -1913,7 +1950,7 @@ export interface EventPublishState {
   published_at?: string | null;
   publish_failed_at?: string | null;
   day_records: Record<string, PublishedDayRecordDto>;
-  last_publish_target?: PublishTarget | null;
+  last_publish_targets?: PublishDestination[];
   last_publish_result_summary?: string | null;
 }
 
@@ -1923,7 +1960,7 @@ export interface EventPublishStateSavePayload {
   published_at?: string | null;
   publish_failed_at?: string | null;
   day_records?: Record<string, PublishedDayRecordDto>;
-  last_publish_target?: PublishTarget | null;
+  last_publish_targets?: PublishDestination[];
   last_publish_result_summary?: string | null;
 }
 
@@ -1931,7 +1968,7 @@ export interface EventPublishFailurePayload {
   day_ids: string[];
   failed_at: string;
   failure_message?: string;
-  last_publish_target?: PublishTarget | null;
+  last_publish_targets?: PublishDestination[];
   last_publish_result_summary?: string | null;
 }
 
@@ -2440,7 +2477,7 @@ export const appSettingsApi = {
   },
 
   /** Fetch the configured publish target. */
-  getPublishTarget: async (): Promise<{ target: PublishTarget }> => {
+  getPublishTarget: async (): Promise<{ targets: PublishTarget }> => {
     const response = await apiFetch(
       `${API_BASE}/api/v1/app-settings/publish-target`,
     );
@@ -2451,14 +2488,14 @@ export const appSettingsApi = {
 
   /** Save the configured publish target. */
   setPublishTarget: async (
-    target: PublishTarget,
-  ): Promise<{ target: PublishTarget }> => {
+    targets: PublishTarget,
+  ): Promise<{ targets: PublishTarget }> => {
     const response = await apiFetch(
       `${API_BASE}/api/v1/app-settings/publish-target`,
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target }),
+        body: JSON.stringify({ targets }),
       },
     );
     if (!response.ok)

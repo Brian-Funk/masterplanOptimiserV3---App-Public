@@ -19,6 +19,36 @@ export interface RendererDiagnosticPayload {
   extra?: string;
 }
 
+export interface PdfExportDirectoryState {
+  outputDirectory: string | null;
+  available: boolean;
+  cancelled?: boolean;
+}
+
+export interface PdfExportScheduleDay {
+  date: string;
+  dayLabel: string;
+  tasks: unknown[];
+}
+
+export interface PdfExportPayload {
+  title: string;
+  eventId: number;
+  eventName: string;
+  eventLocation?: string;
+  eventStartDate: string;
+  eventEndDate: string;
+  scheduleDayRange?: unknown;
+  scheduleDayBoundary?: unknown;
+  days: PdfExportScheduleDay[];
+}
+
+export interface PdfExportResult {
+  success: boolean;
+  path: string;
+  fileName: string;
+}
+
 export interface ElectronDiagnosticBridge {
   isElectron?: boolean;
   platform?: string;
@@ -40,6 +70,12 @@ export interface ElectronDiagnosticBridge {
   recordRendererError?: (
     payload: RendererDiagnosticPayload,
   ) => Promise<{ success: boolean; error?: string }>;
+  getPdfExportDirectory?: () => Promise<PdfExportDirectoryState>;
+  choosePdfExportDirectory?: () => Promise<PdfExportDirectoryState>;
+  clearPdfExportDirectory?: () => Promise<PdfExportDirectoryState>;
+  exportSchedulePdf?: (payload: PdfExportPayload) => Promise<PdfExportResult>;
+  getPdfExportJob?: (jobId: string) => Promise<PdfExportPayload & { generatedAt: string }>;
+  notifyPdfExportReady?: (jobId: string) => Promise<{ success: boolean }>;
 }
 
 declare global {

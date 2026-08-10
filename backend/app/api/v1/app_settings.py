@@ -8,7 +8,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 
 from app.db.database import get_db
 from app.models.app_settings import AppSettings
@@ -208,42 +208,72 @@ async def delete_google_oauth(db: Session = Depends(get_db)):
 # Publish Target
 # ──────────────────────────────────────────────────────────────
 
-_KEY_PUBLISH_TARGET = "publish_target"  # "none" | "google" | "mp-backend" | "both"
-_VALID_PUBLISH_TARGETS = ("none", "google", "mp-backend", "both")
+_KEY_PUBLISH_TARGET = "publish_target"
+PublishDestination = Literal["google", "mp-backend", "pdf"]
+_PUBLISH_DESTINATION_ORDER = ("google", "mp-backend", "pdf")
+
+
+def _normalise_publish_targets(value: object) -> list[PublishDestination]:
+    """Return a canonical destination list and translate retired scalar values."""
+    if isinstance(value, str):
+        scalar = value.strip()
+        legacy = {
+            "": [],
+            "none": [],
+            "google": ["google"],
+            "mp-backend": ["mp-backend"],
+            "both": ["google", "mp-backend"],
+        }
+        if scalar in legacy:
+            value = legacy[scalar]
+        else:
+            try:
+                value = json.loads(scalar)
+            except (TypeError, ValueError):
+                return []
+    if not isinstance(value, list):
+        return []
+    selected = {item for item in value if item in _PUBLISH_DESTINATION_ORDER}
+    return [item for item in _PUBLISH_DESTINATION_ORDER if item in selected]
 
 
 class PublishTargetPayload(BaseModel):
     """Requested publish target for schedule export actions."""
 
-    target: str  # "none" | "google" | "mp-backend" | "both"
+    targets: list[PublishDestination] = Field(default_factory=list, max_length=3)
 
 
 class PublishTargetResponse(BaseModel):
     """Current publish target saved in local app settings."""
 
-    target: str
+    targets: list[PublishDestination]
 
 
 @router.get("/publish-target", response_model=PublishTargetResponse)
 async def get_publish_target(db: Session = Depends(get_db)):
     """Get the current publish target. Defaults to 'none'."""
     row = db.query(AppSettings).filter(AppSettings.key == _KEY_PUBLISH_TARGET).first()
-    target = row.value if row and row.value in _VALID_PUBLISH_TARGETS else "none"
-    return PublishTargetResponse(target=target)
+    targets = _normalise_publish_targets(row.value if row else None)
+    return PublishTargetResponse(targets=targets)
 
 
 @router.put("/publish-target", response_model=PublishTargetResponse)
 async def set_publish_target(payload: PublishTargetPayload, db: Session = Depends(get_db)):
     """Set the publish target."""
-    if payload.target not in _VALID_PUBLISH_TARGETS:
-        raise HTTPException(status_code=400, detail="target must be 'none', 'google', 'mp-backend', or 'both'")
+    targets = _normalise_publish_targets(payload.targets)
+    if len(targets) != len(set(payload.targets)) or len(targets) != len(payload.targets):
+        raise HTTPException(
+            status_code=400,
+            detail="targets must contain unique values from 'google', 'mp-backend', and 'pdf'",
+        )
+    stored = json.dumps(targets, separators=(",", ":"))
     row = db.query(AppSettings).filter(AppSettings.key == _KEY_PUBLISH_TARGET).first()
     if row:
-        row.value = payload.target
+        row.value = stored
     else:
-        db.add(AppSettings(key=_KEY_PUBLISH_TARGET, value=payload.target))
+        db.add(AppSettings(key=_KEY_PUBLISH_TARGET, value=stored))
     db.commit()
-    return PublishTargetResponse(target=payload.target)
+    return PublishTargetResponse(targets=targets)
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
