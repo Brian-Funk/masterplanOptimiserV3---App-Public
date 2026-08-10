@@ -10,9 +10,10 @@ public release prepared from a qualified successor is `3.9.0`.
 ### Added
 
 - Added PDF as an independently selectable publishing destination beside
-  Google Calendar and MP-Backend. Selected-day publishing creates one light A4
-  page; all-days publishing creates an ordered multi-page schedule using the
-  event title and a protected workstation-only output folder.
+  Google Calendar and MP-Backend. Selected-day publishing creates a light A4
+  portrait day packet; all-days publishing creates an ordered multi-page
+  schedule with readable task details, the event title and a protected
+  workstation-only output folder.
 - Added mandatory event-scoped Desktop processor enrolment when an event is
   connected to a Server. Desktop can generate a new Ed25519 identity locally
   or import a compatible encrypted processor package, retains private material
