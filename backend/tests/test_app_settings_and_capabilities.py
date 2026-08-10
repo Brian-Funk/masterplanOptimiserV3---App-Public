@@ -171,6 +171,36 @@ async def test_publish_state_round_trips_destination_array_and_reads_legacy_scal
 
     loaded = await get_event_publish_state(event.id, db=db_session)
     assert loaded.last_publish_targets == ["google", "mp-backend"]
+    assert loaded.last_publish_target == "both"
+
+
+@pytest.mark.asyncio
+async def test_publish_state_accepts_retired_scalar_request_without_weakening_pdf_array(db_session):
+    event = Event(
+        name="Synthetic Assembly",
+        location="Test Hall",
+        start_date=date(2032, 4, 21),
+        end_date=date(2032, 4, 24),
+    )
+    db_session.add(event)
+    db_session.commit()
+    db_session.refresh(event)
+
+    legacy = await save_event_publish_state(
+        event.id,
+        EventPublishStateSavePayload(last_publish_target="both"),
+        db=db_session,
+    )
+    assert legacy.last_publish_targets == ["google", "mp-backend"]
+    assert legacy.last_publish_target == "both"
+
+    pdf = await save_event_publish_state(
+        event.id,
+        EventPublishStateSavePayload(last_publish_targets=["google", "pdf"]),
+        db=db_session,
+    )
+    assert pdf.last_publish_targets == ["google", "pdf"]
+    assert pdf.last_publish_target is None
 
 
 @pytest.mark.asyncio

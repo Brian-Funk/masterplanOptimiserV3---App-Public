@@ -18,6 +18,7 @@ router = APIRouter()
 
 PublishScope = Literal["all", "partial", "none"]
 PublishDestination = Literal["google", "mp-backend", "pdf"]
+LegacyPublishTarget = Literal["google", "mp-backend", "both", "none"]
 _PUBLISH_DESTINATION_ORDER = ("google", "mp-backend", "pdf")
 
 
@@ -40,6 +41,7 @@ class EventPublishStateResponse(BaseModel):
     publish_failed_at: str | None = None
     day_records: dict[str, PublishedDayRecord] = Field(default_factory=dict)
     last_publish_targets: list[PublishDestination] = Field(default_factory=list)
+    last_publish_target: LegacyPublishTarget | None = None
     last_publish_result_summary: str | None = None
 
 
@@ -52,6 +54,7 @@ class EventPublishStateSavePayload(BaseModel):
     publish_failed_at: str | None = None
     day_records: dict[str, PublishedDayRecord] = Field(default_factory=dict)
     last_publish_targets: list[PublishDestination] = Field(default_factory=list, max_length=3)
+    last_publish_target: LegacyPublishTarget | None = None
     last_publish_result_summary: str | None = None
 
 
@@ -62,6 +65,7 @@ class EventPublishFailurePayload(BaseModel):
     failed_at: str
     failure_message: str = "Publish failed."
     last_publish_targets: list[PublishDestination] = Field(default_factory=list, max_length=3)
+    last_publish_target: LegacyPublishTarget | None = None
     last_publish_result_summary: str | None = None
 
 
@@ -121,6 +125,29 @@ def _normalise_publish_targets(value: object) -> list[PublishDestination]:
     return [item for item in _PUBLISH_DESTINATION_ORDER if item in selected]
 
 
+def _effective_publish_targets(
+    targets: list[PublishDestination],
+    legacy_target: LegacyPublishTarget | None,
+) -> list[PublishDestination]:
+    """Use the canonical array, or translate one retired scalar request."""
+    if targets or legacy_target is None:
+        return _normalise_publish_targets(targets)
+    return _normalise_publish_targets(legacy_target)
+
+
+def _legacy_publish_target(
+    targets: list[PublishDestination],
+) -> LegacyPublishTarget | None:
+    """Represent pre-PDF combinations for clients using the retired field."""
+    mapping: dict[tuple[PublishDestination, ...], LegacyPublishTarget] = {
+        (): "none",
+        ("google",): "google",
+        ("mp-backend",): "mp-backend",
+        ("google", "mp-backend"): "both",
+    }
+    return mapping.get(tuple(targets))
+
+
 def _serialise_day_records(
     records: dict[str, PublishedDayRecord],
 ) -> dict[str, dict[str, str | None]]:
@@ -148,6 +175,7 @@ def _row_to_response(
     if scope not in ("all", "partial", "none"):
         scope = "none"
 
+    targets = _normalise_publish_targets(row.last_publish_target)
     return EventPublishStateResponse(
         event_id=event_id,
         published_schedule_fingerprint=row.published_schedule_fingerprint,
@@ -155,7 +183,8 @@ def _row_to_response(
         published_at=row.published_at,
         publish_failed_at=row.publish_failed_at,
         day_records=_normalise_day_records(row.day_records),
-        last_publish_targets=_normalise_publish_targets(row.last_publish_target),
+        last_publish_targets=targets,
+        last_publish_target=_legacy_publish_target(targets),
         last_publish_result_summary=row.last_publish_result_summary,
     )
 
@@ -200,9 +229,11 @@ async def save_event_publish_state(
     row.published_at = payload.published_at
     row.publish_failed_at = payload.publish_failed_at
     row.day_records = _serialise_day_records(payload.day_records)
-    row.last_publish_target = json.dumps(
-        _normalise_publish_targets(payload.last_publish_targets), separators=(",", ":")
+    targets = _effective_publish_targets(
+        payload.last_publish_targets,
+        payload.last_publish_target,
     )
+    row.last_publish_target = json.dumps(targets, separators=(",", ":"))
     row.last_publish_result_summary = payload.last_publish_result_summary
     db.commit()
     db.refresh(row)
@@ -229,9 +260,11 @@ async def record_event_publish_failure(
         )
     row.publish_failed_at = payload.failed_at
     row.day_records = _serialise_day_records(records)
-    row.last_publish_target = json.dumps(
-        _normalise_publish_targets(payload.last_publish_targets), separators=(",", ":")
+    targets = _effective_publish_targets(
+        payload.last_publish_targets,
+        payload.last_publish_target,
     )
+    row.last_publish_target = json.dumps(targets, separators=(",", ":"))
     row.last_publish_result_summary = payload.last_publish_result_summary
     db.commit()
     db.refresh(row)
