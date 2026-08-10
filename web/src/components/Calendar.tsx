@@ -59,6 +59,8 @@ type CalendarTask = {
   _visual_width?: number | null; // percentage points for width (null = auto)
   // Extra fields from description templates (show_on_card = true)
   _extra_card_fields?: Array<{ label: string; value: string }>;
+  // Print-only reference derived by the PDF renderer (for example T01).
+  _pdf_reference?: string;
   optimised?: Record<string, any>;
   final?: Record<string, any>;
   manualChange?: {
@@ -953,13 +955,22 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
             isPresentationCompact ? "space-y-0.5" : "space-y-1"
           }`}
         >
-          {taskTimeLabel && (
-            <div
-              className={`font-mono font-semibold tracking-normal text-foreground ${
-                isPresentationCompact ? "text-[11px]" : "text-xs"
-              }`}
-            >
-              {taskTimeLabel}
+          {(task._pdf_reference || taskTimeLabel) && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              {task._pdf_reference && (
+                <span className="rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold leading-none tracking-wide text-white">
+                  {task._pdf_reference}
+                </span>
+              )}
+              {taskTimeLabel && (
+                <span
+                  className={`font-mono font-semibold tracking-normal text-foreground ${
+                    isPresentationCompact ? "text-[11px]" : "text-xs"
+                  }`}
+                >
+                  {taskTimeLabel}
+                </span>
+              )}
             </div>
           )}
           <div

@@ -128,8 +128,9 @@ export function PdfExportSection({
       <div>
         <h3 className="text-lg font-semibold text-foreground">PDF</h3>
         <p className="mt-1 text-sm text-foreground-muted">
-          Export the Optimised Schedule as a light A4 landscape document. The title belongs to
-          this event; the folder stays only on this workstation.
+          Export the Optimised Schedule as a light A4 portrait document. Every day includes a
+          visual timeline and complete readable task details; dense days continue onto additional
+          pages. The title belongs to this event; the folder stays only on this workstation.
         </p>
       </div>
 

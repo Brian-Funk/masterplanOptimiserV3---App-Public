@@ -810,7 +810,7 @@ export default function SettingsPage() {
     {
       value: "pdf",
       label: "PDF",
-      description: "Create a local light-mode A4 landscape schedule PDF.",
+      description: "Create a local light-mode A4 portrait schedule PDF with readable task details.",
       enabled: pdfReady,
       disabledHint: "Choose an available PDF output folder first.",
     },

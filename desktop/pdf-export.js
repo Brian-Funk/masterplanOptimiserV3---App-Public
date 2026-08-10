@@ -8,6 +8,24 @@ const MAX_TASKS_PER_DAY = 2000;
 const MAX_TASK_BYTES_PER_DAY = 1024 * 1024;
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const RESERVED_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+const PDF_FOOTER_TEMPLATE = `
+  <div style="box-sizing:border-box;display:flex;width:100%;align-items:center;justify-content:space-between;padding:0 10mm;color:#6b7280;font-family:'Source Sans 3',Arial,sans-serif;font-size:7.5pt;">
+    <span>MP-OPT Optimised Schedule</span>
+    <span><span class="pageNumber"></span> / <span class="totalPages"></span></span>
+  </div>`;
+
+function buildPdfPrintOptions() {
+  return {
+    landscape: false,
+    pageSize: 'A4',
+    printBackground: true,
+    preferCSSPageSize: true,
+    displayHeaderFooter: true,
+    headerTemplate: '<span></span>',
+    footerTemplate: PDF_FOOTER_TEMPLATE,
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+  };
+}
 
 function settingsPath(userDataDir) {
   return path.join(userDataDir, SETTINGS_FILE);
@@ -163,6 +181,7 @@ function validatePdfExportPayload(payload) {
 }
 
 module.exports = {
+  buildPdfPrintOptions,
   clearPdfExportSettings,
   describePdfExportDirectory,
   localTimestamp,

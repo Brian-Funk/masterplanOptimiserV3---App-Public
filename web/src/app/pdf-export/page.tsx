@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import Calendar, { type CalendarTask } from "@/components/Calendar";
 import type { PdfExportPayload } from "@/lib/electronDiagnostics";
+import {
+  buildPdfDayTaskModel,
+  type PdfTaskDetail,
+} from "@/lib/pdfScheduleDetails";
 
 type PdfJob = PdfExportPayload & { generatedAt: string };
 
@@ -20,18 +23,93 @@ function waitForImages(): Promise<void> {
   return Promise.all(pending).then(() => undefined);
 }
 
+/** Fit the visual timeline to portrait width without shrinking it to a fixed page height. */
 function fitCalendars() {
   document.querySelectorAll<HTMLElement>("[data-pdf-calendar-frame]").forEach((frame) => {
     const content = frame.querySelector<HTMLElement>("[data-pdf-calendar-content]");
     if (!content) return;
     content.style.transform = "none";
-    content.style.width = "100%";
+    frame.style.height = "auto";
     const widthScale = frame.clientWidth / Math.max(content.scrollWidth, 1);
-    const heightScale = frame.clientHeight / Math.max(content.scrollHeight, 1);
-    const scale = Math.min(1, widthScale, heightScale);
+    const scale = Math.min(1, widthScale);
     content.style.transform = `scale(${scale})`;
-    content.style.width = `${100 / scale}%`;
+    frame.style.height = `${Math.ceil(content.scrollHeight * scale)}px`;
   });
+}
+
+function PdfHeader({
+  job,
+  dayLabel,
+}: {
+  job: PdfJob;
+  dayLabel: string;
+}) {
+  return (
+    <header className="pdf-header">
+      <div className="pdf-brand">
+        {/* Use the original raster asset directly so Chromium preserves its blue/violet colour. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo_normal.png" alt="MP-OPT" width="54" height="54" />
+        <div className="pdf-brand-divider" />
+        <div className="pdf-title-block">
+          <p className="pdf-kicker">Optimised Schedule</p>
+          <h1>{job.title}</h1>
+        </div>
+      </div>
+      <div className="pdf-event-meta">
+        <strong>{job.eventName}</strong>
+        {job.eventLocation && <span>{job.eventLocation}</span>}
+        <span>{dayLabel}</span>
+        <small>Generated {new Date(job.generatedAt).toLocaleString()}</small>
+      </div>
+    </header>
+  );
+}
+
+function PdfTaskDetailRow({ detail }: { detail: PdfTaskDetail }) {
+  return (
+    <tr className="pdf-task-row" data-pdf-task-reference={detail.reference}>
+      <td>
+        <article className="pdf-task-detail">
+          <div className="pdf-task-heading">
+            <span className="pdf-task-reference">{detail.reference}</span>
+            <div className="pdf-task-title">
+              <h3>{detail.title}</h3>
+              <span>{detail.taskType}</span>
+            </div>
+            <span className="pdf-task-time">{detail.time}</span>
+          </div>
+          <div className="pdf-task-accent" style={{ backgroundColor: detail.colour }} />
+          <dl className="pdf-task-facts">
+            {detail.location && (
+              <div>
+                <dt>Location</dt>
+                <dd>{detail.location}</dd>
+              </div>
+            )}
+            {detail.allocations.length > 0 && (
+              <div>
+                <dt>Allocations</dt>
+                <dd>
+                  {detail.allocations.map((allocation) => (
+                    <span className="pdf-allocation-line" key={allocation}>
+                      {allocation}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+            )}
+            {detail.fields.map((field) => (
+              <div key={`${field.label}-${field.value}`}>
+                <dt>{field.label}</dt>
+                <dd>{field.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </article>
+      </td>
+    </tr>
+  );
 }
 
 export default function PdfExportPage() {
@@ -56,14 +134,25 @@ export default function PdfExportPage() {
     return () => observer.disconnect();
   }, []);
 
+  const days = useMemo(
+    () =>
+      job?.days.map((day) => ({
+        ...day,
+        model: buildPdfDayTaskModel(day.tasks as CalendarTask[]),
+      })) || [],
+    [job],
+  );
+
   useEffect(() => {
-    if (!job) return;
+    if (!job || days.length === 0) return;
     const jobId = new URLSearchParams(window.location.search).get("job");
     let cancelled = false;
     const ready = async () => {
       await document.fonts.ready;
       await waitForImages();
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
       fitCalendars();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (!cancelled && jobId && window.electron?.notifyPdfExportReady) {
@@ -74,7 +163,7 @@ export default function PdfExportPage() {
     return () => {
       cancelled = true;
     };
-  }, [job]);
+  }, [days, job]);
 
   if (error) {
     return <main className="pdf-error">{error}</main>;
@@ -85,54 +174,68 @@ export default function PdfExportPage() {
 
   return (
     <main className="pdf-document">
-      {job.days.map((day, index) => (
-        <section className="pdf-page" key={day.date}>
-          <header className="pdf-header">
-            <div className="pdf-brand">
-              <Image src="/logo_normal.svg" alt="MP-OPT" width={118} height={40} priority />
-              <div className="pdf-brand-divider" />
+      {days.map((day) => (
+        <section className="pdf-day" key={day.date}>
+          <PdfHeader job={job} dayLabel={day.dayLabel} />
+
+          <section className="pdf-timeline-section" aria-label={`Schedule for ${day.dayLabel}`}>
+            <div className="pdf-section-heading">
               <div>
-                <p className="pdf-kicker">Optimised Schedule</p>
-                <h1>{job.title}</h1>
+                <p>Visual schedule</p>
+                <h2>{day.dayLabel}</h2>
+              </div>
+              <span>
+                {day.model.details.length} {day.model.details.length === 1 ? "task" : "tasks"}
+              </span>
+            </div>
+            <div className="pdf-calendar-frame" data-pdf-calendar-frame>
+              <div className="pdf-calendar-content" data-pdf-calendar-content>
+                <Calendar
+                  tasks={day.model.tasks}
+                  viewType="daily"
+                  selectedDate={day.date}
+                  eventStartDate={day.date}
+                  eventEndDate={day.date}
+                  scheduleDayRange={job.scheduleDayRange as any}
+                  scheduleDayBoundary={job.scheduleDayBoundary as any}
+                  onTaskEdit={() => undefined}
+                  presentationMode
+                  pdfMode
+                  density="comfortable"
+                />
               </div>
             </div>
-            <div className="pdf-event-meta">
-              <strong>{job.eventName}</strong>
-              {job.eventLocation && <span>{job.eventLocation}</span>}
-              <span>{day.dayLabel}</span>
-            </div>
-          </header>
+          </section>
 
-          <div className="pdf-calendar-frame" data-pdf-calendar-frame>
-            <div className="pdf-calendar-content" data-pdf-calendar-content>
-              <Calendar
-                tasks={day.tasks as CalendarTask[]}
-                viewType="daily"
-                selectedDate={day.date}
-                eventStartDate={day.date}
-                eventEndDate={day.date}
-                scheduleDayRange={job.scheduleDayRange as any}
-                scheduleDayBoundary={job.scheduleDayBoundary as any}
-                onTaskEdit={() => undefined}
-                presentationMode
-                pdfMode
-                density="comfortable"
-              />
-            </div>
-          </div>
-
-          <footer className="pdf-footer">
-            <span>Generated {new Date(job.generatedAt).toLocaleString()}</span>
-            <span>
-              {index + 1} / {job.days.length}
-            </span>
-          </footer>
+          <table className="pdf-details-table" aria-label={`Task details for ${day.dayLabel}`}>
+            <thead>
+              <tr>
+                <th>
+                  <div className="pdf-details-heading">
+                    <div>
+                      <p>Task details</p>
+                      <h2>{day.dayLabel}</h2>
+                    </div>
+                    <span>
+                      {job.eventName}
+                      {job.eventLocation ? ` - ${job.eventLocation}` : ""}
+                    </span>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {day.model.details.map((detail) => (
+                <PdfTaskDetailRow detail={detail} key={detail.reference} />
+              ))}
+            </tbody>
+          </table>
         </section>
       ))}
       <style jsx global>{`
         @page {
-          size: A4 landscape;
-          margin: 0;
+          size: A4 portrait;
+          margin: 9mm 10mm 12mm;
         }
         html,
         body {
@@ -144,10 +247,12 @@ export default function PdfExportPage() {
           -webkit-print-color-adjust: exact;
         }
         .pdf-document {
+          width: 100%;
           background: #ffffff;
           color: #111827;
           color-scheme: light;
           font-family: "Source Sans 3", sans-serif;
+          font-size: 10pt;
           --color-surface: #ffffff;
           --color-surface-alt: #f9fafb;
           --color-surface-inset: #f3f4f6;
@@ -161,83 +266,123 @@ export default function PdfExportPage() {
           --color-border-subtle: #eef2f7;
           --color-border-strong: #d1d5db;
         }
-        .pdf-page {
-          box-sizing: border-box;
-          display: grid;
-          grid-template-rows: auto minmax(0, 1fr) auto;
-          gap: 4mm;
-          width: 297mm;
-          height: 210mm;
-          padding: 9mm 10mm 7mm;
-          overflow: hidden;
-          break-after: page;
-          page-break-after: always;
-          background: #ffffff;
+        .pdf-day {
+          break-before: page;
+          page-break-before: always;
         }
-        .pdf-page:last-child {
-          break-after: auto;
-          page-break-after: auto;
+        .pdf-day:first-child {
+          break-before: auto;
+          page-break-before: auto;
         }
         .pdf-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 8mm;
+          gap: 6mm;
+          margin-bottom: 5mm;
           border-bottom: 1px solid #dbe3f0;
           padding-bottom: 3mm;
+          break-inside: avoid;
+          page-break-inside: avoid;
         }
         .pdf-brand {
           display: flex;
           min-width: 0;
           align-items: center;
-          gap: 4mm;
+          gap: 3mm;
         }
         .pdf-brand img {
+          width: 14mm;
+          height: 14mm;
+          flex: 0 0 auto;
           object-fit: contain;
         }
         .pdf-brand-divider {
           width: 1px;
-          height: 12mm;
+          height: 13mm;
+          flex: 0 0 auto;
           background: linear-gradient(#2563eb, #7c3aed);
         }
-        .pdf-kicker {
+        .pdf-title-block {
+          min-width: 0;
+        }
+        .pdf-kicker,
+        .pdf-section-heading p,
+        .pdf-details-heading p {
           margin: 0 0 0.5mm;
           color: #4f46e5;
-          font-size: 8pt;
+          font-size: 7.5pt;
           font-weight: 700;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
         .pdf-header h1 {
-          max-width: 150mm;
+          max-width: 105mm;
           margin: 0;
-          overflow: hidden;
+          overflow-wrap: anywhere;
           color: #111827;
-          font-size: 18pt;
+          font-size: 16pt;
           font-weight: 700;
-          line-height: 1.1;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          line-height: 1.08;
         }
         .pdf-event-meta {
           display: flex;
-          max-width: 85mm;
+          max-width: 62mm;
+          flex: 0 0 auto;
           flex-direction: column;
           align-items: flex-end;
           color: #4b5563;
-          font-size: 9pt;
+          font-size: 8.5pt;
           line-height: 1.25;
           text-align: right;
         }
         .pdf-event-meta strong {
           color: #111827;
-          font-size: 10pt;
+          font-size: 9.5pt;
+        }
+        .pdf-event-meta small {
+          margin-top: 1mm;
+          color: #6b7280;
+          font-size: 7pt;
+        }
+        .pdf-timeline-section {
+          margin-bottom: 5mm;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        .pdf-section-heading,
+        .pdf-details-heading {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 5mm;
+          border-bottom: 1px solid #e5e7eb;
+          padding-bottom: 2mm;
+        }
+        .pdf-section-heading {
+          margin-bottom: 2.5mm;
+        }
+        .pdf-section-heading h2,
+        .pdf-details-heading h2 {
+          margin: 0;
+          color: #111827;
+          font-size: 12pt;
+          line-height: 1.15;
+        }
+        .pdf-section-heading > span,
+        .pdf-details-heading > span {
+          color: #6b7280;
+          font-size: 8pt;
+          font-weight: 500;
+          text-align: right;
         }
         .pdf-calendar-frame {
+          width: 100%;
           min-height: 0;
           overflow: hidden;
         }
         .pdf-calendar-content {
+          width: 100%;
           transform-origin: top left;
         }
         [data-pdf-mode="true"] {
@@ -250,13 +395,117 @@ export default function PdfExportPage() {
           animation: none !important;
           transition: none !important;
         }
-        .pdf-footer {
-          display: flex;
-          justify-content: space-between;
-          border-top: 1px solid #e5e7eb;
-          padding-top: 2mm;
+        [data-pdf-mode="true"] [data-presentation-card="true"] {
+          padding: 6px !important;
+        }
+        [data-pdf-mode="true"] [data-presentation-card="true"] .line-clamp-2 {
+          line-height: 1.12 !important;
+        }
+        .pdf-details-table {
+          width: 100%;
+          border-spacing: 0;
+        }
+        .pdf-details-table thead {
+          display: table-header-group;
+        }
+        .pdf-details-table th,
+        .pdf-details-table td {
+          padding: 0;
+          text-align: left;
+        }
+        .pdf-details-heading {
+          margin-bottom: 2.5mm;
+          background: #ffffff;
+        }
+        .pdf-task-row,
+        .pdf-task-detail {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        .pdf-task-row td {
+          padding-bottom: 2.5mm;
+        }
+        .pdf-task-detail {
+          position: relative;
+          overflow: hidden;
+          border: 1px solid #dbe3f0;
+          border-radius: 2.5mm;
+          background: #ffffff;
+          box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+        }
+        .pdf-task-accent {
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 1.3mm;
+        }
+        .pdf-task-heading {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: start;
+          gap: 3mm;
+          padding: 3mm 3.5mm 2.5mm 4.5mm;
+          background: linear-gradient(90deg, #f8fafc, #ffffff);
+        }
+        .pdf-task-reference {
+          border-radius: 1.5mm;
+          background: #4f46e5;
+          padding: 1mm 1.8mm;
+          color: #ffffff;
+          font-size: 8pt;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          line-height: 1;
+        }
+        .pdf-task-title h3 {
+          margin: 0;
+          overflow-wrap: anywhere;
+          color: #111827;
+          font-size: 11pt;
+          font-weight: 700;
+          line-height: 1.2;
+        }
+        .pdf-task-title span {
+          display: block;
+          margin-top: 0.5mm;
+          color: #6b7280;
+          font-size: 8pt;
+        }
+        .pdf-task-time {
+          white-space: nowrap;
+          color: #312e81;
+          font-family: "Source Sans 3", sans-serif;
+          font-size: 9pt;
+          font-weight: 700;
+        }
+        .pdf-task-facts {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 2.5mm 5mm;
+          margin: 0;
+          border-top: 1px solid #eef2f7;
+          padding: 2.5mm 3.5mm 3mm 4.5mm;
+        }
+        .pdf-task-facts > div {
+          min-width: 0;
+        }
+        .pdf-task-facts dt {
+          margin: 0 0 0.5mm;
           color: #6b7280;
           font-size: 7.5pt;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+        .pdf-task-facts dd {
+          margin: 0;
+          overflow-wrap: anywhere;
+          color: #1f2937;
+          font-size: 9pt;
+          line-height: 1.3;
+          white-space: pre-wrap;
+        }
+        .pdf-allocation-line {
+          display: block;
         }
         .pdf-error {
           padding: 2rem;

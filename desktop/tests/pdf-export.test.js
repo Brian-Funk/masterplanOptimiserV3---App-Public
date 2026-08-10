@@ -5,6 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  buildPdfPrintOptions,
   clearPdfExportSettings,
   describePdfExportDirectory,
   localTimestamp,
@@ -13,6 +14,17 @@ const {
   validatePdfExportPayload,
   writePdfExportSettings,
 } = require('../pdf-export');
+
+test('PDF printing uses A4 portrait with backgrounds and native page numbering', () => {
+  const options = buildPdfPrintOptions();
+  assert.equal(options.landscape, false);
+  assert.equal(options.pageSize, 'A4');
+  assert.equal(options.printBackground, true);
+  assert.equal(options.preferCSSPageSize, true);
+  assert.equal(options.displayHeaderFooter, true);
+  assert.match(options.footerTemplate, /pageNumber/);
+  assert.match(options.footerTemplate, /totalPages/);
+});
 
 function withTemporaryDirectories(callback) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-opt-pdf-test-'));

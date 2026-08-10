@@ -32,7 +32,7 @@ The Electron shell is responsible for:
 - detecting occupied ports and startup failures;
 - applying renderer hardening such as navigation allowlists and permission denial by default;
 - injecting the per-session desktop token into local backend requests;
-- validating structured PDF jobs, constructing safe collision-free filenames, and rendering local A4 landscape files;
+- validating structured PDF jobs, constructing safe collision-free filenames, and rendering local A4 portrait files with paginated task details;
 - packaging resources into the released desktop application.
 
 ## Backend

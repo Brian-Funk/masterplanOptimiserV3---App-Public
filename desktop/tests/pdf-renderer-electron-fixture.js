@@ -10,7 +10,9 @@ const {
   frontendUrl,
   userDataPath,
   preloadPath,
+  pdfExportModulePath,
 } = config;
+const { buildPdfPrintOptions } = require(pdfExportModulePath);
 const debugPath = `${receiptPath}.log`;
 const debug = (message) => fs.appendFileSync(debugPath, `${new Date().toISOString()} ${message}\n`);
 debug(`fixture started: ${JSON.stringify({ frontendUrl, userDataPath, preloadPath })}`);
@@ -72,26 +74,48 @@ app.whenReady().then(async () => {
   debug('renderer ready');
   clearTimeout(timeout);
   const bodyText = await window.webContents.executeJavaScript('document.body.innerText');
-  const visualState = await window.webContents.executeJavaScript(`({
-    rootClassName: document.documentElement.className,
-    background: getComputedStyle(document.body).backgroundColor,
-    fontFamily: getComputedStyle(document.querySelector('.pdf-document')).fontFamily,
-    logoReady: Boolean(document.querySelector('.pdf-brand img')?.complete),
-  })`);
-  const pdf = await window.webContents.printToPDF({
-    landscape: true,
-    pageSize: 'A4',
-    printBackground: true,
-    preferCSSPageSize: true,
-    margins: { top: 0, bottom: 0, left: 0, right: 0 },
-  });
+  const visualState = await window.webContents.executeJavaScript(`(() => {
+    const logo = document.querySelector('.pdf-brand img');
+    let logoHasColour = false;
+    if (logo?.complete && logo.naturalWidth > 0) {
+      const canvas = document.createElement('canvas');
+      canvas.width = logo.naturalWidth;
+      canvas.height = logo.naturalHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(logo, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      for (let index = 0; index < pixels.length; index += 4) {
+        const red = pixels[index];
+        const green = pixels[index + 1];
+        const blue = pixels[index + 2];
+        const alpha = pixels[index + 3];
+        if (alpha > 32 && Math.max(red, green, blue) - Math.min(red, green, blue) > 24) {
+          logoHasColour = true;
+          break;
+        }
+      }
+    }
+    return {
+      rootClassName: document.documentElement.className,
+      background: getComputedStyle(document.body).backgroundColor,
+      fontFamily: getComputedStyle(document.querySelector('.pdf-document')).fontFamily,
+      logoReady: Boolean(logo?.complete),
+      logoHasColour,
+      detailRows: document.querySelectorAll('[data-pdf-task-reference]').length,
+    };
+  })()`);
+  const pdf = await window.webContents.printToPDF(buildPdfPrintOptions());
   fs.writeFileSync(outputPath, pdf, { flag: 'wx' });
   debug(`pdf written: ${pdf.length}`);
   const source = pdf.toString('latin1');
   const pageCount = (source.match(/\/Type\s*\/Page(?!s)/g) || []).length;
+  const mediaBoxMatch = source.match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/);
+  const mediaBox = mediaBoxMatch
+    ? { width: Number(mediaBoxMatch[1]), height: Number(mediaBoxMatch[2]) }
+    : null;
   fs.writeFileSync(
     receiptPath,
-    JSON.stringify({ bodyText, visualState, pageCount, size: pdf.length, outputPath }, null, 2),
+    JSON.stringify({ bodyText, visualState, pageCount, mediaBox, size: pdf.length, outputPath }, null, 2),
   );
   window.destroy();
   app.quit();

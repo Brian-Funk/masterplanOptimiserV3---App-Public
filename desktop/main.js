@@ -33,6 +33,7 @@ const {
   prepareDesktopUserData,
 } = require('./user-data-paths');
 const {
+  buildPdfPrintOptions,
   clearPdfExportSettings,
   describePdfExportDirectory,
   nextPdfPath,
@@ -404,13 +405,7 @@ async function exportSchedulePdf(payload) {
   try {
     await pdfWindow.loadURL(printUrl);
     await waitForPdfDocument(jobId);
-    const pdf = await pdfWindow.webContents.printToPDF({
-      landscape: true,
-      pageSize: 'A4',
-      printBackground: true,
-      preferCSSPageSize: true,
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
-    });
+    const pdf = await pdfWindow.webContents.printToPDF(buildPdfPrintOptions());
     let outputPath = null;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const candidate = nextPdfPath(directory.outputDirectory, validated.title);
