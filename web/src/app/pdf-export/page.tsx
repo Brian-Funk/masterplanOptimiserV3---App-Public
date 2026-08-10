@@ -232,7 +232,7 @@ export default function PdfExportPage() {
           </table>
         </section>
       ))}
-      <style jsx global>{`
+      <style>{`
         @page {
           size: A4 portrait;
           margin: 9mm 10mm 12mm;
