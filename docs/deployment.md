@@ -59,10 +59,13 @@ Persistent desktop data includes:
 - the local SQLite database;
 - the database encryption key;
 - application settings such as Google OAuth, solver settings, shortcuts, and publish targets;
+- the workstation-only PDF output-folder setting;
 - event and project data stored inside the database;
 - user-customised desktop assets such as the app icon.
 
 The desktop shell passes the backend an absolute `DATABASE_URL` and `ENCRYPTION_KEY_PATH` under `app.getPath("userData")`. Startup reuses existing files and never deletes or overwrites the user-data directory. A fresh install creates the database and encryption key there when the backend first needs them.
+
+The PDF output folder is stored as a protected Electron user-data setting, separate from the database. Event-specific PDF titles remain in event metadata and therefore follow normal project export/import, while workstation paths never do.
 
 Manual update verification:
 

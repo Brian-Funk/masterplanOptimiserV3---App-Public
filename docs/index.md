@@ -21,9 +21,9 @@ publication surface rather than selected independently for each field.
 ## What This App Contains
 
 - Electron desktop shell for startup, packaging, local service orchestration, and desktop hardening.
-- Local FastAPI backend for event data, scheduling data, settings, Google Calendar integration, MP-Backend publishing, and optimisation jobs.
+- Local FastAPI backend for event data, scheduling data, settings, Google Calendar integration, MP-Backend publishing, PDF-title metadata, and optimisation jobs.
 - Python compute modules for flow checking and OR-Tools based optimisation.
-- Next.js React frontend for the project hub, settings, schedule input, optimisation review, metrics, presentation mode, and publishing flows.
+- Next.js React frontend for the project hub, settings, schedule input, optimisation review, metrics, presentation mode, and Google Calendar, MP-Backend, or local PDF publishing flows.
 
 ## Documentation Layout
 

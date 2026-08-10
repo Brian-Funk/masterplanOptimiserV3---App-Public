@@ -18,6 +18,10 @@ FastAPI backend
   reads/writes local SQLite data
   invokes compute modules
   publishes to Google Calendar or MP-Backend when configured
+
+Electron shell
+  stores the workstation-only PDF folder
+  renders structured schedule data to a local PDF
 ```
 
 ## Desktop Shell
@@ -28,11 +32,12 @@ The Electron shell is responsible for:
 - detecting occupied ports and startup failures;
 - applying renderer hardening such as navigation allowlists and permission denial by default;
 - injecting the per-session desktop token into local backend requests;
+- validating structured PDF jobs, constructing safe collision-free filenames, and rendering local A4 landscape files;
 - packaging resources into the released desktop application.
 
 ## Backend
 
-The backend is a local FastAPI service under `backend/app`. It exposes APIs for events, locations, people, groups, task templates, task instances, optimisation, finalisation, data import/export, settings, Google Calendar, and MP-Backend publishing.
+The backend is a local FastAPI service under `backend/app`. It exposes APIs for events, locations, people, groups, task templates, task instances, optimisation, finalisation, data import/export, settings, Google Calendar, MP-Backend publishing, and the event-specific PDF title. PDF files themselves never pass through the backend.
 
 Persistent state is stored in the app database. Sensitive values such as OAuth tokens and publish secrets are encrypted where the model marks them as encrypted fields.
 

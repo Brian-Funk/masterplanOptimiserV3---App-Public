@@ -32,6 +32,7 @@ import {
   mpBackendApi,
   appSettingsApi,
   publishStateApi,
+  eventsApi,
   type PublishTarget,
 } from "@/lib/api";
 import PersonReplacementMenu from "@/components/PersonReplacementMenu";
@@ -63,6 +64,11 @@ import {
   type PublishPreviewScope,
 } from "@/lib/publishPreview";
 import { formatStatusTimestamp } from "@/lib/statusTimestamps";
+import {
+  getPublishTargetsLabel,
+  hasPublishDestination,
+} from "@/lib/publishTargets";
+import { exportSchedulePdf } from "@/lib/pdfExport";
 import {
   getScheduleDayBoundaryFromRange,
   getWorkingDayForDateTime,
@@ -1065,7 +1071,7 @@ export function OptimisedTab({
 
   const [isPublishing, setIsPublishing] = useState(false);
   const [showPublishDropdown, setShowPublishDropdown] = useState(false);
-  const [publishTarget, setPublishTarget] = useState<PublishTarget>("none");
+  const [publishTarget, setPublishTarget] = useState<PublishTarget>([]);
   const [publishPreview, setPublishPreview] = useState<PublishPreview | null>(
     null,
   );
@@ -1076,7 +1082,7 @@ export function OptimisedTab({
   useEffect(() => {
     appSettingsApi
       .getPublishTarget()
-      .then((pt) => setPublishTarget(pt.target))
+      .then((pt) => setPublishTarget(pt.targets))
       .catch(() => {});
   }, []);
 
@@ -1128,7 +1134,7 @@ export function OptimisedTab({
         publish_failed_at: null,
         published_schedule_fingerprint: options.fingerprint ?? null,
         published_schedule_scope: options.scope ?? "none",
-        last_publish_target: options.target ?? null,
+        last_publish_targets: options.target ?? [],
         last_publish_result_summary: options.resultSummary ?? null,
       });
     },
@@ -1155,7 +1161,7 @@ export function OptimisedTab({
           day_ids: days.map((day) => day.dayId),
           failed_at: publishFailedAt,
           failure_message: failureMessage,
-          last_publish_target: publishTarget,
+          last_publish_targets: publishTarget,
           last_publish_result_summary: failureMessage,
         });
         dayRecords = state.day_records || fallbackRecords;
@@ -1263,8 +1269,39 @@ export function OptimisedTab({
       return;
     }
 
+    let pdfFileName = "";
+    let googlePublished = false;
+    let mpBackendPublished = false;
     setIsPublishing(true);
     try {
+      const target = publishTarget;
+
+      // Render the local PDF first. A missing folder or renderer failure must not
+      // allow Calendar or MP-Backend side effects to begin.
+      if (hasPublishDestination(target, "pdf")) {
+        const pdfSettings = await eventsApi.getPdfExportSettings(selectedEvent.id);
+        const pdfResult = await exportSchedulePdf({
+          title: pdfSettings.title,
+          eventId: selectedEvent.id,
+          eventName: selectedEvent.name,
+          eventLocation: selectedEvent.location || "",
+          eventStartDate: selectedEvent.start_date,
+          eventEndDate: selectedEvent.end_date,
+          scheduleDayRange: selectedEvent.meta_data?.schedule_day_range ?? null,
+          scheduleDayBoundary: getScheduleDayBoundaryFromRange(
+            selectedEvent.meta_data?.schedule_day_range,
+          ),
+          days: targetDays.map((day) => ({
+            date: day.dayId,
+            dayLabel: getEventDayLabel(selectedEvent, day.dayId),
+            tasks: tasks.filter((task) =>
+              isTaskInWorkingDay(task, day.dayId, scheduleDayBoundary),
+            ),
+          })),
+        });
+        pdfFileName = pdfResult.fileName;
+      }
+
       // First finalize so backend tasks table is up to date
       const scheduledEventInstances = eventInstances.filter(
         (inst: any) => inst.optimised || inst.final,
@@ -1294,18 +1331,18 @@ export function OptimisedTab({
         });
       }
 
-      const target = publishTarget;
       const errors: string[] = [];
       let gcEventsCreated = 0;
 
       // Publish to Google Calendar (if target includes it)
-      if (target === "google" || target === "both") {
+      if (hasPublishDestination(target, "google")) {
         try {
           const gcResult = await googleCalendarApi.publish(
             selectedEvent.id,
             targetDates,
           );
           gcEventsCreated = gcResult.events_created || 0;
+          googlePublished = true;
         } catch (gcError: any) {
           const msg =
             gcError instanceof Error ? gcError.message : String(gcError);
@@ -1320,7 +1357,7 @@ export function OptimisedTab({
       }
 
       // Publish to MP-Backend server (if target includes it)
-      if (target === "mp-backend" || target === "both") {
+      if (hasPublishDestination(target, "mp-backend")) {
         try {
           const mpBackendDates =
             publishPreview.scope === "all_days" &&
@@ -1329,6 +1366,7 @@ export function OptimisedTab({
               ? undefined
               : targetDates;
           await mpBackendApi.publish(selectedEvent.id, mpBackendDates);
+          mpBackendPublished = true;
         } catch (mpError: any) {
           const msg =
             mpError instanceof Error ? mpError.message : String(mpError);
@@ -1343,8 +1381,16 @@ export function OptimisedTab({
       }
 
       if (errors.length > 0) {
-        await recordPublishFailure(targetDays, errors.join(", "));
-        addToast(`Publish failed: ${errors.join(", ")}`, "error");
+        const completed = [
+          pdfFileName ? `PDF ${pdfFileName}` : "",
+          googlePublished ? "Google Calendar" : "",
+          mpBackendPublished ? "MP-Backend" : "",
+        ].filter(Boolean);
+        const failureSummary = completed.length
+          ? `Publish partially completed. ${completed.join(", ")} succeeded. Failed: ${errors.join(", ")}`
+          : `Publish failed: ${errors.join(", ")}`;
+        await recordPublishFailure(targetDays, failureSummary);
+        addToast(failureSummary, "error");
       } else {
         const publishedAt = new Date().toISOString();
         const nextRecords: PublishedDayRecords = { ...publishedDayRecords };
@@ -1409,12 +1455,13 @@ export function OptimisedTab({
           await refreshEvents();
         }
         const parts: string[] = [];
-        if ((target === "google" || target === "both") && gcEventsCreated > 0) {
+        if (hasPublishDestination(target, "google") && gcEventsCreated > 0) {
           parts.push(`${gcEventsCreated} event(s) in Google Calendar`);
         }
-        if (target === "mp-backend" || target === "both") {
+        if (hasPublishDestination(target, "mp-backend")) {
           parts.push("MP-Backend server");
         }
+        if (pdfFileName) parts.push(`PDF ${pdfFileName}`);
         addToast(
           `${publishSummary}${parts.length > 0 ? " " + parts.join(", ") : ""}`,
           "success",
@@ -1423,14 +1470,20 @@ export function OptimisedTab({
       }
     } catch (error) {
       console.error("Failed to publish:", error);
+      const completed = [
+        pdfFileName ? `PDF ${pdfFileName}` : "",
+        googlePublished ? "Google Calendar" : "",
+        mpBackendPublished ? "MP-Backend" : "",
+      ].filter(Boolean);
+      const failure = error instanceof Error ? error.message : "Unknown error";
+      const failureSummary = completed.length
+        ? `Publish partially completed. ${completed.join(", ")} succeeded. Failed: ${failure}`
+        : `Failed to publish: ${failure}`;
       await recordPublishFailure(
         targetDays,
-        error instanceof Error ? error.message : "Unknown error",
+        failureSummary,
       );
-      addToast(
-        `Failed to publish: ${error instanceof Error ? error.message : "Unknown error"}`,
-        "error",
-      );
+      addToast(failureSummary, "error");
     } finally {
       setIsPublishing(false);
     }
@@ -1846,7 +1899,7 @@ export function OptimisedTab({
           <div className="relative">
             <div className="flex">
               <Tooltip
-                content={`Publish ${formatDateShort(selectedDate)} to ${publishTarget === "google" ? "Google Calendar" : publishTarget === "mp-backend" ? "MP-Backend" : publishTarget === "none" ? "None (not configured)" : "Google Calendar & MP-Backend"} (${publishDayShortcut})`}
+                content={`Publish ${formatDateShort(selectedDate)} to ${getPublishTargetsLabel(publishTarget)} (${publishDayShortcut})`}
                 side="bottom"
               >
                 <button
