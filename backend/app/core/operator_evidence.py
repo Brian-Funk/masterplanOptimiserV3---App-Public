@@ -16,6 +16,10 @@ from typing import Any
 import uuid
 
 from cryptography.hazmat.primitives import serialization
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.hashes import SHA256
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy.orm import Session
 
@@ -24,14 +28,19 @@ from app.models.operator_evidence import ProcessorEvidenceKey
 
 
 REGISTRATION_FORMAT = "mp-opt-trust-key-registration-v1"
-STATEMENT_FORMAT = "mp-opt-processor-statement-v1"
+PROCESSOR_EVENT_REGISTRATION_FORMAT = "mp-opt-processor-event-registration-v1"
+PRIVATE_PACKAGE_FORMAT = "mp-opt-processor-private-key-v1"
+PUBLIC_PACKAGE_FORMAT = "mp-opt-processor-public-key-v1"
+POLICY_ACK_FORMAT = "mp-opt-desktop-policy-acknowledgement-v1"
+DELETION_RECEIPT_FORMAT = "mp-opt-desktop-deletion-receipt-v2"
+COPY_RESOLUTION_FORMAT = "mp-opt-desktop-copy-resolution-v1"
+WORK_ORDER_CLAIM_FORMAT = "mp-opt-desktop-work-order-claim-v1"
 SIGNATURE_FORMAT = "mp-opt-ed25519-signature-v1"
 TRUST_NAMESPACE = "mp-opt-role-trust-v1"
+DESKTOP_EVIDENCE_NAMESPACE = "mp-opt-desktop-evidence-v1"
 PROCESSOR_ROLE = "processor"
-STATEMENT_TYPES = frozenset({"publication", "conversion", "erasure", "receipt"})
 KEY_ID_RE = re.compile(r"^ek-[0-9a-f]{16}$")
 ENTITY_ID_RE = re.compile(r"^prc-[a-z0-9]{8,48}$")
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 PRIVATE_MARKERS = tuple(
     f"-----BEGIN {label}-----"
@@ -129,11 +138,13 @@ def _load_private(row: ProcessorEvidenceKey) -> Ed25519PrivateKey:
 
 
 def generate_key(
-    db: Session, *, processor_id: str, supersedes_key_id: str | None = None,
+    db: Session, *, processor_id: str, event_evidence_id: str,
+    display_label: str | None = None, supersedes_key_id: str | None = None,
 ) -> ProcessorEvidenceKey:
     """Generate one processor key directly into the OS credential store."""
     if not ENTITY_ID_RE.fullmatch(processor_id):
         raise ProcessorEvidenceError("The processor identity is invalid.")
+    _uuid(event_evidence_id, "event_evidence_id")
     if supersedes_key_id is not None:
         previous = db.query(ProcessorEvidenceKey).filter(
             ProcessorEvidenceKey.key_id == supersedes_key_id,
@@ -150,6 +161,8 @@ def generate_key(
         public_key=public,
         public_key_sha256=hashlib.sha256(public.encode("ascii")).hexdigest(),
         processor_id=processor_id,
+        event_evidence_id=event_evidence_id,
+        display_label=display_label,
         role=PROCESSOR_ROLE,
         supersedes_key_id=supersedes_key_id,
     )
@@ -176,7 +189,7 @@ def registration_file(row: ProcessorEvidenceKey) -> dict[str, Any]:
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
     return {
-        "format": "mp-opt-processor-public-key-v1",
+        "format": PUBLIC_PACKAGE_FORMAT,
         "instance_id": None,
         "entity_id": row.processor_id,
         "key_id": row.key_id,
@@ -184,6 +197,9 @@ def registration_file(row: ProcessorEvidenceKey) -> dict[str, Any]:
         "algorithm": "Ed25519",
         "public_key": row.public_key,
         "public_key_sha256": row.public_key_sha256,
+        "supersedes_key_id": row.supersedes_key_id,
+        "rotation_reason": "routine" if row.supersedes_key_id else None,
+        "display_label": row.display_label,
         "created_at": created.astimezone(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "signature_namespace": TRUST_NAMESPACE,
     }
@@ -205,13 +221,33 @@ def action_payload(document: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_registration(document: dict[str, Any], row: ProcessorEvidenceKey) -> None:
-    fields = {
+    event_fields = {
+        "format", "challenge_id", "action", "instance_id", "event_ref", "entity_id",
+        "key_id", "role", "algorithm", "public_key_sha256", "supersedes_key_id",
+        "reason", "action_sha256", "nonce", "created_at", "expires_at",
+    }
+    if document.get("format") == PROCESSOR_EVENT_REGISTRATION_FORMAT:
+        if set(document) != event_fields or document.get("event_ref") != row.event_evidence_id:
+            raise ProcessorEvidenceError("The event-bound registration challenge is invalid.")
+        expected_action = {
+            "format": "mp-opt-processor-event-action-v1",
+            "action": document.get("action"), "instance_id": document.get("instance_id"),
+            "event_ref": document.get("event_ref"), "entity_id": document.get("entity_id"),
+            "key_id": document.get("key_id"), "role": document.get("role"),
+            "algorithm": document.get("algorithm"),
+            "public_key_sha256": document.get("public_key_sha256"),
+            "supersedes_key_id": document.get("supersedes_key_id"), "reason": document.get("reason"),
+        }
+        if document.get("action_sha256") != hashlib.sha256(canonical_json(expected_action)).hexdigest():
+            raise ProcessorEvidenceError("The event-bound registration action digest is invalid.")
+    else:
+        fields = {
         "format", "challenge_id", "action", "instance_id", "entity_id", "key_id",
         "role", "algorithm", "public_key_sha256", "supersedes_key_id", "reason",
         "action_sha256", "nonce", "created_at", "expires_at",
-    }
-    if set(document) != fields or document.get("format") != REGISTRATION_FORMAT:
-        raise ProcessorEvidenceError("The registration challenge fields are invalid.")
+        }
+        if set(document) != fields or document.get("format") != REGISTRATION_FORMAT:
+            raise ProcessorEvidenceError("The registration challenge fields are invalid.")
     canonical_json(document)
     _uuid(document.get("challenge_id"), "challenge_id")
     _uuid(document.get("instance_id"), "instance_id")
@@ -223,7 +259,8 @@ def _validate_registration(document: dict[str, Any], row: ProcessorEvidenceKey) 
         raise ProcessorEvidenceError("The challenge action is invalid.")
     if document.get("key_id") != row.key_id or document.get("public_key_sha256") != row.public_key_sha256:
         raise ProcessorEvidenceError("The challenge does not target this processor key.")
-    expected = hashlib.sha256(canonical_json(action_payload(document))).hexdigest()
+    digest_payload = expected_action if document.get("format") == PROCESSOR_EVENT_REGISTRATION_FORMAT else action_payload(document)
+    expected = hashlib.sha256(canonical_json(digest_payload)).hexdigest()
     if document.get("action_sha256") != expected:
         raise ProcessorEvidenceError("The exact action digest is invalid.")
     if document["action"] == "register":
@@ -246,48 +283,156 @@ def _validate_registration(document: dict[str, Any], row: ProcessorEvidenceKey) 
         raise ProcessorEvidenceError("The registration nonce must contain 32 bytes.")
 
 
-def _validate_statement(document: dict[str, Any], row: ProcessorEvidenceKey) -> None:
-    fields = {
-        "format", "instance_id", "entity_id", "key_id", "role", "algorithm",
-        "public_key_sha256", "statement_type", "statement_sha256", "created_at",
-    }
-    if set(document) != fields or document.get("format") != STATEMENT_FORMAT:
-        raise ProcessorEvidenceError("The processor statement fields are invalid.")
-    canonical_json(document)
-    _uuid(document.get("instance_id"), "instance_id")
-    if (
-        document.get("entity_id") != row.processor_id
-        or document.get("key_id") != row.key_id
-        or document.get("role") != PROCESSOR_ROLE
-        or document.get("algorithm") != "Ed25519"
-        or document.get("public_key_sha256") != row.public_key_sha256
-    ):
-        raise ProcessorEvidenceError("The processor statement has the wrong key, identity, or role.")
-    if document.get("statement_type") not in STATEMENT_TYPES:
-        raise ProcessorEvidenceError("The processor statement type is unsupported.")
-    if not isinstance(document.get("statement_sha256"), str) or not SHA256_RE.fullmatch(document["statement_sha256"]):
-        raise ProcessorEvidenceError("The exact statement digest is invalid.")
-    if _timestamp(document.get("created_at"), "created_at") > datetime.now(timezone.utc) + timedelta(minutes=5):
-        raise ProcessorEvidenceError("The processor statement time is too far in the future.")
-
-
 def sign_document(db: Session, *, identifier: str, document: dict[str, Any], kind: str) -> dict[str, str]:
     row = db.query(ProcessorEvidenceKey).filter(ProcessorEvidenceKey.key_id == identifier).first()
-    if row is None or row.state != "active":
+    allowed_states = {"pending_root_approval", "active"} if kind == "registration" else {"active"}
+    if row is None or row.state not in allowed_states:
         raise ProcessorEvidenceError("The local processor key is not active.")
     if kind == "registration":
         _validate_registration(document, row)
-    elif kind == "statement":
-        _validate_statement(document, row)
+    elif kind == "desktop_evidence":
+        expected = {
+            POLICY_ACK_FORMAT: "policy",
+            DELETION_RECEIPT_FORMAT: "deletion",
+            COPY_RESOLUTION_FORMAT: "copy_resolution",
+            WORK_ORDER_CLAIM_FORMAT: "claim",
+        }
+        if document.get("format") not in expected:
+            raise ProcessorEvidenceError("The processor may sign only typed Desktop evidence.")
+        if (
+            document.get("event_ref") != row.event_evidence_id
+            or document.get("entity_id") != row.processor_id
+            or document.get("key_id") != row.key_id
+            or document.get("role") != PROCESSOR_ROLE
+            or document.get("algorithm") != "Ed25519"
+            or document.get("public_key_sha256") != row.public_key_sha256
+        ):
+            raise ProcessorEvidenceError("The Desktop evidence targets another event or key.")
+        canonical_json(document)
     else:
         raise ProcessorEvidenceError("The signing purpose is invalid.")
-    signature = _load_private(row).sign(TRUST_NAMESPACE.encode("ascii") + b"\0" + canonical_json(document))
+    namespace = DESKTOP_EVIDENCE_NAMESPACE if kind == "desktop_evidence" else TRUST_NAMESPACE
+    signature = _load_private(row).sign(namespace.encode("ascii") + b"\0" + canonical_json(document))
     return {
         "format": SIGNATURE_FORMAT,
         "key_id": row.key_id,
+        "namespace": namespace,
+        "signature": base64.b64encode(signature).decode("ascii"),
+    }
+
+
+def sign_rotation_continuity(
+    db: Session, *, previous_identifier: str, successor_identifier: str, document: dict[str, Any]
+) -> dict[str, str]:
+    """Prove that the active predecessor authorises an event-bound routine rotation."""
+    previous = db.query(ProcessorEvidenceKey).filter(
+        ProcessorEvidenceKey.key_id == previous_identifier,
+    ).first()
+    successor = db.query(ProcessorEvidenceKey).filter(
+        ProcessorEvidenceKey.key_id == successor_identifier,
+    ).first()
+    if previous is None or previous.state != "active" or successor is None:
+        raise ProcessorEvidenceError("The processor-key rotation cannot be authorised locally.")
+    if (
+        successor.supersedes_key_id != previous.key_id
+        or successor.processor_id != previous.processor_id
+        or successor.event_evidence_id != previous.event_evidence_id
+    ):
+        raise ProcessorEvidenceError("The processor-key rotation crosses an identity or event boundary.")
+    _validate_registration(document, successor)
+    if document.get("action") != "rotate" or document.get("reason") != "routine":
+        raise ProcessorEvidenceError("The predecessor may authorise only a routine rotation.")
+    signature = _load_private(previous).sign(
+        TRUST_NAMESPACE.encode("ascii") + b"\0" + canonical_json(document)
+    )
+    return {
+        "format": SIGNATURE_FORMAT,
+        "key_id": previous.key_id,
         "namespace": TRUST_NAMESPACE,
         "signature": base64.b64encode(signature).decode("ascii"),
     }
+
+
+def import_encrypted_key(
+    db: Session, *, package: dict[str, Any], passphrase: str,
+    event_evidence_id: str, display_label: str | None = None,
+) -> ProcessorEvidenceKey:
+    """Import the public Pages key format into the OS credential store."""
+
+    if len(passphrase) < 16:
+        raise ProcessorEvidenceError("The processor key passphrase must contain at least 16 characters.")
+    expected = {
+        "format", "public_package", "kdf", "cipher", "ciphertext",
+    }
+    if not isinstance(package, dict) or set(package) != expected or package.get("format") != PRIVATE_PACKAGE_FORMAT:
+        raise ProcessorEvidenceError("The encrypted processor key package is invalid.")
+    public_package = package.get("public_package")
+    if not isinstance(public_package, dict) or public_package.get("format") != PUBLIC_PACKAGE_FORMAT:
+        raise ProcessorEvidenceError("The processor public package is invalid.")
+    _uuid(event_evidence_id, "event_evidence_id")
+    entity_id = str(public_package.get("entity_id", ""))
+    if not ENTITY_ID_RE.fullmatch(entity_id):
+        raise ProcessorEvidenceError("The processor identity is invalid.")
+    kdf = package.get("kdf")
+    cipher = package.get("cipher")
+    if (
+        not isinstance(kdf, dict) or set(kdf) != {"name", "hash", "iterations", "salt"}
+        or kdf.get("name") != "PBKDF2" or kdf.get("hash") != "SHA-256"
+        or kdf.get("iterations") != 600000
+        or not isinstance(cipher, dict) or set(cipher) != {"name", "iv", "tag_length"}
+        or cipher.get("name") != "AES-GCM" or cipher.get("tag_length") != 128
+    ):
+        raise ProcessorEvidenceError("The processor key encryption parameters are unsupported.")
+    try:
+        salt = base64.b64decode(kdf["salt"], validate=True)
+        iv = base64.b64decode(cipher["iv"], validate=True)
+        ciphertext = base64.b64decode(package["ciphertext"], validate=True)
+    except (TypeError, ValueError) as exc:
+        raise ProcessorEvidenceError("The processor key encryption data is invalid.") from exc
+    if len(salt) != 16 or len(iv) != 12:
+        raise ProcessorEvidenceError("The processor key encryption salt or IV is invalid.")
+    aad = canonical_json(public_package)
+    derived = bytearray(PBKDF2HMAC(algorithm=SHA256(), length=32, salt=salt, iterations=600000).derive(passphrase.encode("utf-8")))
+    private_bytes: bytearray | None = None
+    try:
+        private_bytes = bytearray(AESGCM(bytes(derived)).decrypt(iv, ciphertext, aad))
+        private = serialization.load_der_private_key(bytes(private_bytes), password=None)
+    except (InvalidTag, ValueError, TypeError) as exc:
+        raise ProcessorEvidenceError("The processor key passphrase or encrypted package is invalid.") from exc
+    finally:
+        derived[:] = b"\0" * len(derived)
+        if private_bytes is not None:
+            private_bytes[:] = b"\0" * len(private_bytes)
+    if not isinstance(private, Ed25519PrivateKey):
+        raise ProcessorEvidenceError("The imported processor key is not Ed25519.")
+    public = _public(private)
+    identifier = key_id(public)
+    fingerprint = hashlib.sha256(public.encode("ascii")).hexdigest()
+    if (
+        public_package.get("key_id") != identifier
+        or public_package.get("public_key") != public
+        or public_package.get("public_key_sha256") != fingerprint
+    ):
+        raise ProcessorEvidenceError("The imported private key does not match its public package.")
+    if db.query(ProcessorEvidenceKey).filter(ProcessorEvidenceKey.key_id == identifier).first():
+        raise ProcessorEvidenceError("This processor key is already present.")
+    row = ProcessorEvidenceKey(
+        key_id=identifier, public_key=public, public_key_sha256=fingerprint,
+        processor_id=entity_id, event_evidence_id=event_evidence_id,
+        display_label=display_label or public_package.get("display_label"),
+        supersedes_key_id=public_package.get("supersedes_key_id"),
+    )
+    secret = private.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode("ascii")
+    account = private_key_account(identifier)
+    set_secret(account, secret)
+    try:
+        db.add(row); db.commit(); db.refresh(row)
+    except Exception:
+        db.rollback(); delete_secret(account); raise
+    return row
 
 
 def retire_key(db: Session, *, identifier: str) -> ProcessorEvidenceKey:

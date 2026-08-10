@@ -199,7 +199,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Brian-Funk/masterplanOptimiserV3---Testing
-          ref: db86f01e8890e8fbfd85366baaa64b6a1319bb98
+          ref: 576833b783b0158ce14b2da85a8b9af88ae40fd7
           path: EYP/MasterplanOptimiserV3 - Testing/masterplanOptimiserV3---Testing
           token: ${{ secrets.TESTING_REPO_READ_TOKEN || github.token }}
           persist-credentials: false

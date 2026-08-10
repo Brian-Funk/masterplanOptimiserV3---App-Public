@@ -3,12 +3,14 @@
 import { useState, useEffect } from "react";
 import { Button, Card, Input, Tooltip } from "@/components/ui";
 import { useEvent } from "@/contexts/EventContext";
+import { useToast } from "@/contexts/ToastContext";
 import {
   mpBackendApi,
   MpBackendSettings,
   MpBackendPingResult,
   MpBackendDataPolicy,
 } from "@/lib/api";
+import { ProcessorEvidenceSection } from "./ProcessorEvidenceSection";
 import {
   CheckCircle,
   AlertTriangle,
@@ -22,7 +24,13 @@ import {
 } from "lucide-react";
 
 export function MpBackendSection() {
-  const { selectedEventId, availableEvents } = useEvent();
+  const {
+    selectedEventId,
+    setSelectedEventId,
+    availableEvents,
+    refreshEvents,
+  } = useEvent();
+  const { addToast } = useToast();
   const selectedEvent =
     availableEvents.find((e) => e.id === selectedEventId) || null;
 
@@ -35,6 +43,7 @@ export function MpBackendSection() {
   const [publishing, setPublishing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [syncingDeletion, setSyncingDeletion] = useState(false);
+  const [pendingDeletionRequests, setPendingDeletionRequests] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [pingResult, setPingResult] = useState<MpBackendPingResult | null>(
@@ -72,13 +81,21 @@ export function MpBackendSection() {
               : "The Server permitted-data policy is unavailable.",
           );
         }
+        try {
+          const status = await mpBackendApi.getDeletionWorkOrderStatus(selectedEventId);
+          setPendingDeletionRequests(status.pending);
+        } catch {
+          setPendingDeletionRequests(null);
+        }
       } else {
         setDataPolicy(null);
+        setPendingDeletionRequests(null);
       }
     } catch {
       // Not configured yet
       setSettings(null);
       setDataPolicy(null);
+      setPendingDeletionRequests(null);
     } finally {
       setLoading(false);
     }
@@ -209,6 +226,21 @@ export function MpBackendSection() {
       const result = await mpBackendApi.syncDeletionWorkOrders(
         selectedEventId,
       );
+      if (result.event_deleted) {
+        setPendingDeletionRequests(0);
+        const eventName = selectedEvent?.name || "The selected event";
+        setSelectedEventId(null);
+        await refreshEvents();
+        addToast(
+          result.reports_pending > 0
+            ? `${eventName} was deleted from this Desktop. Its privacy report is safely queued for retry.`
+            : `${eventName} was deleted from this Desktop and its privacy report was sent.`,
+          result.reports_pending > 0 ? "warning" : "success",
+        );
+        return;
+      }
+      const status = await mpBackendApi.getDeletionWorkOrderStatus(selectedEventId);
+      setPendingDeletionRequests(status.pending);
       setMessage(
         `Deletion requests processed: ${result.applied}; reports sent: ${result.reports_sent}; reports pending: ${result.reports_pending}`,
       );
@@ -393,7 +425,7 @@ export function MpBackendSection() {
                   type="url"
                   value={serverUrl}
                   onChange={(e) => setServerUrl(e.target.value)}
-                  placeholder="https://mp-opt.net"
+                  placeholder="https://masterplan.example.org"
                   className="flex-1 px-3 py-2 text-sm border border-bordercl-strong rounded-md bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
@@ -453,6 +485,14 @@ export function MpBackendSection() {
       </Card>
 
       {/* Publish  -  only when configured */}
+      {settings?.configured && (
+        <Card>
+          <div className="p-4">
+            <ProcessorEvidenceSection />
+          </div>
+        </Card>
+      )}
+
       {settings?.configured && (
         <Card>
           <div className="p-4 space-y-4">
@@ -519,6 +559,19 @@ export function MpBackendSection() {
                 local outbox.
               </p>
             </div>
+            {pendingDeletionRequests !== null && pendingDeletionRequests > 0 && (
+              <div role="status" className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                <div>
+                  <p className="font-semibold">
+                    {pendingDeletionRequests === 1
+                      ? "1 deletion request is waiting"
+                      : `${pendingDeletionRequests} deletion requests are waiting`}
+                  </p>
+                  <p className="mt-1 text-xs">Review and process the requests when you are ready. Checking this status does not claim or delete anything.</p>
+                </div>
+              </div>
+            )}
             <Button
               variant="outline"
               onClick={handleDeletionSync}
@@ -527,7 +580,9 @@ export function MpBackendSection() {
               <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />
               {syncingDeletion
                 ? "Processing deletion requests…"
-                : "Process deletion requests"}
+                : pendingDeletionRequests && pendingDeletionRequests > 0
+                  ? `Process ${pendingDeletionRequests} deletion ${pendingDeletionRequests === 1 ? "request" : "requests"}`
+                  : "Process deletion requests"}
             </Button>
           </div>
         </Card>

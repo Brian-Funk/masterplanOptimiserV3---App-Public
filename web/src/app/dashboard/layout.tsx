@@ -25,7 +25,6 @@ import {
   appSettingsApi,
   eventsApi,
   dataManagementApi,
-  mpBackendApi,
 } from "@/lib/api";
 import type { ImportValidationResult } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
@@ -36,6 +35,8 @@ import { SwissDateInput } from "@/components/ui/SwissDateInput";
 import { useToast } from "@/contexts/ToastContext";
 import { Spinner } from "@/components/ui/Spinner";
 import { buildInvalidJsonImportValidation } from "@/lib/importPreview";
+import { usePendingDeletionWork } from "@/contexts/PendingDeletionWorkContext";
+import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 
 function NavBar() {
   const router = useRouter();
@@ -50,7 +51,10 @@ function NavBar() {
 
   const [calConn, setCalConn] = useState<GoogleCalendarConnection | null>(null);
   const [showCalTooltip, setShowCalTooltip] = useState(false);
-  const [mpBackendConfigured, setMpBackendConfigured] = useState(false);
+  const {
+    configured: mpBackendConfigured,
+    pending: pendingDeletionRequests,
+  } = usePendingDeletionWork();
   const [showMpTooltip, setShowMpTooltip] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -105,15 +109,7 @@ function NavBar() {
         setCalConn(connected || (conns.length > 0 ? conns[0] : null));
       })
       .catch(() => {});
-    if (selectedEventId) {
-      mpBackendApi
-        .getSettings(selectedEventId)
-        .then((status) => setMpBackendConfigured(status.configured))
-        .catch(() => setMpBackendConfigured(false));
-    } else {
-      setMpBackendConfigured(false);
-    }
-  }, [pathname, selectedEventId]);
+  }, [pathname]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -374,16 +370,30 @@ function NavBar() {
                   router.push("/dashboard/settings?section=mp-backend")
                 }
                 className={`p-2 rounded-lg transition-colors ${
-                  mpBackendConfigured
+                  pendingDeletionRequests > 0
+                    ? "relative bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300"
+                    : mpBackendConfigured
                     ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30 dark:bg-green-950/30"
                     : "text-foreground-faint hover:text-foreground-muted hover:bg-surface-hover"
                 }`}
+                aria-label={pendingDeletionRequests > 0 ? `${pendingDeletionRequests} pending deletion requests` : "MP-Backend settings"}
               >
                 <Globe className="w-5 h-5" />
+                {pendingDeletionRequests > 0 && (
+                  <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-amber-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                    {pendingDeletionRequests > 99 ? "99+" : pendingDeletionRequests}
+                  </span>
+                )}
               </button>
               {showMpTooltip && (
                 <div className="absolute right-0 top-full mt-1 z-50 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap shadow-lg">
-                  {mpBackendConfigured ? (
+                  {pendingDeletionRequests > 0 ? (
+                    <div className="font-semibold text-amber-300">
+                      {pendingDeletionRequests === 1
+                        ? "1 deletion request is waiting"
+                        : `${pendingDeletionRequests} deletion requests are waiting`}
+                    </div>
+                  ) : mpBackendConfigured ? (
                     <div className="font-semibold text-green-400">
                       MP-Backend configured
                     </div>
@@ -715,6 +725,7 @@ export default function DashboardLayout({
           <NavBar />
           <EventGuard>
             <main className="mx-auto max-w-[1680px] px-8 py-7 xl:px-10 xl:py-8">
+              <PermittedDataInputNotice />
               {children}
             </main>
           </EventGuard>

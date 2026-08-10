@@ -14,7 +14,6 @@ import { Location, Person, TaskType } from "@/lib/api";
 import { CalendarTask } from "@/components/Calendar";
 import ResourceSelector from "@/components/ResourceSelector";
 import { formatDateLong } from "@/lib/dateFormat";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 
 interface OptimisedTaskEditModalProps {
   task: CalendarTask;
@@ -434,12 +433,10 @@ export function OptimisedTaskEditModal({
                 <label className="block text-sm font-medium text-foreground-secondary">
                   Classified operational fields
                 </label>
-                <PermittedDataInputNotice />
                 {editableFields.map((field: any) => (
                   <div key={field.id}>
                     <label className="block text-xs font-medium text-foreground-muted mb-1">
-                      Operational {String(field.purpose || "instruction").replaceAll("_", " ")}: {field.name || field.label || field.id}
-                      <span className="block font-normal">Audience: {String(field.visibility || "not publishable").replaceAll("_", " ")}</span>
+                      {field.name || field.label || field.id}
                     </label>
                     {field.type === "number" ? (
                       <input

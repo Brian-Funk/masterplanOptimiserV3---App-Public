@@ -13,8 +13,15 @@ controller's lawful basis, transparency duties or retention periods.
 
 ## Processing server work orders
 
+The first Server link for an event requires an event-scoped processor identity.
+Generate its key in Desktop or import an encrypted package created by the
+client-only Evidence-Public generator. The private key is copied into the
+operating-system credential store; only public metadata and proof are sent to
+Server. Root must approve the exact event assignment before publishing.
+
 In **Settings > MP-Backend Server**, select **Process deletion requests**. The
-desktop claims only work orders for the server-bound event identity.
+desktop signs its work-order claim and processes only assignments for its
+active event processor identity.
 
 For a personal-data work order, the desktop removes the person, assignments,
 capability links, group memberships, unavailability, task references,
@@ -22,10 +29,11 @@ optimisation state, publish state and known local integration references. For a
 whole-event work order it removes the complete event scope. The deletion and a
 privacy-safe report are committed in one SQLite transaction.
 
-The report contains pseudonymous identifiers, bounded counters and exact
-outstanding action codes. It contains no name, email address, event title,
-schedule content or free-text reason. Its server secret and claim capability
-are encrypted in the local outbox until delivery succeeds. If the event has
+The signed deletion receipt and local-copy resolution contain pseudonymous
+identifiers, bounded counters and exact outstanding action codes. They contain
+no name, email address, event title, schedule content or free-text reason. The
+server secret and claim capability are encrypted in the local outbox until
+both receipts are delivered. If the event has
 already been removed, use **Retry pending deletion reports** from the same
 settings area without selecting an event.
 

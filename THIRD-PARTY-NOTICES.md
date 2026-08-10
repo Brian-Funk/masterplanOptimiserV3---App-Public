@@ -12,6 +12,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | absl-py | 2.5.0 | Apache-2.0 | https://pypi.org/project/absl-py/ |
 | alembic | 1.13.3 | MIT | https://pypi.org/project/alembic/ |
 | altgraph | 0.17.5 | MIT | https://pypi.org/project/altgraph/ |
+| annotated-doc | 0.0.5 | MIT | https://pypi.org/project/annotated-doc/ |
 | annotated-types | 0.8.0 | MIT | https://pypi.org/project/annotated-types/ |
 | anyio | 4.14.2 | MIT | https://pypi.org/project/anyio/ |
 | backports-tarfile | 1.2.0 | MIT | https://pypi.org/project/backports.tarfile/ |
@@ -20,10 +21,10 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | charset-normalizer | 3.4.9 | MIT | https://pypi.org/project/charset-normalizer/ |
 | click | 8.4.2 | BSD-3-Clause | https://pypi.org/project/click/ |
 | colorama | 0.4.6 | BSD-3-Clause | https://pypi.org/project/colorama/ |
-| cryptography | 49.0.0 | Apache-2.0 OR BSD-3-Clause | https://pypi.org/project/cryptography/ |
+| cryptography | 50.0.0 | Apache-2.0 OR BSD-3-Clause | https://pypi.org/project/cryptography/ |
 | dnspython | 2.8.0 | ISC | https://pypi.org/project/dnspython/ |
 | email-validator | 2.3.0 | Unlicense | https://pypi.org/project/email-validator/ |
-| fastapi | 0.115.0 | MIT | https://pypi.org/project/fastapi/ |
+| fastapi | 0.139.2 | MIT | https://pypi.org/project/fastapi/ |
 | google-api-core | 2.33.0 | Apache-2.0 | https://pypi.org/project/google-api-core/ |
 | google-api-python-client | 2.198.0 | Apache-2.0 | https://pypi.org/project/google-api-python-client/ |
 | google-auth-httplib2 | 0.4.0 | Apache-2.0 | https://pypi.org/project/google-auth-httplib2/ |
@@ -61,17 +62,18 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | pyasn1-modules | 0.4.2 | BSD-3-Clause | https://pypi.org/project/pyasn1-modules/ |
 | pyasn1 | 0.6.4 | BSD-2-Clause | https://pypi.org/project/pyasn1/ |
 | pycparser | 3.0 | BSD-3-Clause | https://pypi.org/project/pycparser/ |
-| pydantic-core | 2.23.4 | MIT | https://pypi.org/project/pydantic_core/ |
+| pydantic-core | 2.46.4 | MIT | https://pypi.org/project/pydantic_core/ |
 | pydantic-settings | 2.6.0 | MIT | https://pypi.org/project/pydantic-settings/ |
-| pydantic | 2.9.2 | MIT | https://pypi.org/project/pydantic/ |
+| pydantic | 2.13.4 | MIT | https://pypi.org/project/pydantic/ |
+| pygments | 2.20.0 | BSD-2-Clause | https://pypi.org/project/Pygments/ |
 | pyinstaller-hooks-contrib | 2026.6 | Apache-2.0 OR GPL-2.0-only | https://pypi.org/project/pyinstaller-hooks-contrib/ |
 | pyinstaller | 6.21.0 | GPL-2.0-only | https://pypi.org/project/pyinstaller/ |
 | pyparsing | 3.3.2 | MIT | https://pypi.org/project/pyparsing/ |
-| pytest-asyncio | 0.24.0 | Apache-2.0 | https://pypi.org/project/pytest-asyncio/ |
-| pytest | 8.3.3 | MIT | https://pypi.org/project/pytest/ |
+| pytest-asyncio | 1.4.0 | Apache-2.0 | https://pypi.org/project/pytest-asyncio/ |
+| pytest | 9.1.1 | MIT | https://pypi.org/project/pytest/ |
 | python-dateutil | 2.9.0.post0 | Dual License | https://pypi.org/project/python-dateutil/ |
-| python-dotenv | 1.0.1 | BSD-3-Clause | https://pypi.org/project/python-dotenv/ |
-| python-multipart | 0.0.12 | Apache-2.0 | https://pypi.org/project/python-multipart/ |
+| python-dotenv | 1.2.2 | BSD-3-Clause | https://pypi.org/project/python-dotenv/ |
+| python-multipart | 0.0.31 | Apache-2.0 | https://pypi.org/project/python-multipart/ |
 | pywin32-ctypes | 0.2.3 | BSD-3-Clause | https://pypi.org/project/pywin32-ctypes/ |
 | pyyaml | 6.0.3 | MIT | https://pypi.org/project/PyYAML/ |
 | requests-oauthlib | 2.0.0 | ISC | https://pypi.org/project/requests-oauthlib/ |
@@ -80,8 +82,9 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | six | 1.17.0 | MIT | https://pypi.org/project/six/ |
 | sniffio | 1.3.1 | MIT OR Apache-2.0 | https://pypi.org/project/sniffio/ |
 | sqlalchemy | 2.0.35 | MIT | https://pypi.org/project/SQLAlchemy/ |
-| starlette | 0.38.6 | BSD-3-Clause | https://pypi.org/project/starlette/ |
+| starlette | 1.6.0 | BSD-3-Clause | https://pypi.org/project/starlette/ |
 | typing-extensions | 4.16.0 | PSF-2.0 | https://pypi.org/project/typing-extensions/ |
+| typing-inspection | 0.4.2 | MIT | https://pypi.org/project/typing-inspection/ |
 | tzdata | 2026.3 | Apache-2.0 | https://pypi.org/project/tzdata/ |
 | uritemplate | 4.2.0 | BSD 3-Clause OR Apache-2.0 | https://pypi.org/project/uritemplate/ |
 | urllib3 | 2.7.0 | MIT | https://pypi.org/project/urllib3/ |
@@ -106,6 +109,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | @csstools/css-color-parser | 3.1.0 | MIT | `web/package-lock.json` |
 | @csstools/css-parser-algorithms | 3.0.5 | MIT | `web/package-lock.json` |
 | @csstools/css-tokenizer | 3.0.4 | MIT | `web/package-lock.json` |
+| @electron-internal/extract-zip | 1.0.5 | BSD-2-Clause | `desktop/package-lock.json` |
 | @electron/asar | 3.4.1 | MIT | `desktop/package-lock.json` |
 | @electron/fuses | 1.8.0 | MIT | `desktop/package-lock.json` |
 | @electron/get | 3.1.0 | MIT | `desktop/package-lock.json` |
@@ -228,7 +232,6 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | @types/react-grid-layout | 1.3.6 | MIT | `web/package-lock.json` |
 | @types/responselike | 1.0.3 | MIT | `desktop/package-lock.json` |
 | @types/unist | 3.0.3 | MIT | `web/package-lock.json` |
-| @types/yauzl | 2.10.3 | MIT | `desktop/package-lock.json` |
 | @vitejs/plugin-react | 6.0.1 | MIT | `web/package-lock.json` |
 | @vitest/expect | 4.1.10 | MIT | `web/package-lock.json` |
 | @vitest/mocker | 4.1.10 | MIT | `web/package-lock.json` |
@@ -271,13 +274,12 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | binary-extensions | 2.3.0 | MIT | `web/package-lock.json` |
 | bluebird | 3.7.2 | MIT | `desktop/package-lock.json` |
 | boolean | 3.2.0 | MIT | `desktop/package-lock.json` |
-| brace-expansion | 1.1.17 | MIT | `desktop/package-lock.json` |
-| brace-expansion | 2.1.3 | MIT | `desktop/package-lock.json` |
-| brace-expansion | 5.0.8 | MIT | `desktop/package-lock.json` |
+| brace-expansion | 1.1.18 | MIT | `desktop/package-lock.json` |
+| brace-expansion | 2.1.4 | MIT | `desktop/package-lock.json` |
+| brace-expansion | 5.0.9 | MIT | `desktop/package-lock.json` |
 | brace-expansion | 5.0.9 | MIT | `web/package-lock.json` |
 | braces | 3.0.3 | MIT | `web/package-lock.json` |
 | browserslist | 4.28.0 | MIT | `web/package-lock.json` |
-| buffer-crc32 | 0.2.13 | MIT | `desktop/package-lock.json` |
 | buffer-from | 1.1.2 | MIT | `desktop/package-lock.json` |
 | builder-util | 26.15.3 | MIT | `desktop/package-lock.json` |
 | builder-util-runtime | 9.7.0 | MIT | `desktop/package-lock.json` |
@@ -345,7 +347,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | dunder-proto | 1.0.1 | MIT | `web/package-lock.json` |
 | duplexer2 | 0.1.4 | BSD-3-Clause | `desktop/package-lock.json` |
 | ejs | 3.1.10 | Apache-2.0 | `desktop/package-lock.json` |
-| electron | 42.0.1 | MIT | `desktop/package-lock.json` |
+| electron | 42.8.1 | MIT | `desktop/package-lock.json` |
 | electron-builder | 26.15.3 | MIT | `desktop/package-lock.json` |
 | electron-builder-squirrel-windows | 26.15.3 | MIT | `desktop/package-lock.json` |
 | electron-publish | 26.15.3 | MIT | `desktop/package-lock.json` |
@@ -374,13 +376,11 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | estree-walker | 3.0.3 | MIT | `web/package-lock.json` |
 | expect-type | 1.4.0 | Apache-2.0 | `web/package-lock.json` |
 | exponential-backoff | 3.1.3 | Apache-2.0 | `desktop/package-lock.json` |
-| extract-zip | 2.0.1 | BSD-2-Clause | `desktop/package-lock.json` |
 | fast-deep-equal | 3.1.3 | MIT | `desktop/package-lock.json` |
 | fast-equals | 4.0.3 | MIT | `web/package-lock.json` |
 | fast-glob | 3.3.3 | MIT | `web/package-lock.json` |
-| fast-uri | 3.1.4 | BSD-3-Clause | `desktop/package-lock.json` |
+| fast-uri | 3.1.5 | BSD-3-Clause | `desktop/package-lock.json` |
 | fastq | 1.19.1 | ISC | `web/package-lock.json` |
-| fd-slicer | 1.1.0 | MIT | `desktop/package-lock.json` |
 | fdir | 6.5.0 | MIT | `desktop/package-lock.json` |
 | fdir | 6.5.0 | MIT | `web/package-lock.json` |
 | filelist | 1.0.6 | Apache-2.0 | `desktop/package-lock.json` |
@@ -451,7 +451,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | jiti | 1.21.7 | MIT | `web/package-lock.json` |
 | jiti | 2.7.0 | MIT | `desktop/package-lock.json` |
 | js-tokens | 4.0.0 | MIT | `web/package-lock.json` |
-| js-yaml | 4.3.0 | MIT | `desktop/package-lock.json` |
+| js-yaml | 4.3.1 | MIT | `desktop/package-lock.json` |
 | jsdom | 25.0.1 | MIT | `web/package-lock.json` |
 | json-buffer | 3.0.1 | MIT | `desktop/package-lock.json` |
 | json-schema-traverse | 1.0.0 | MIT | `desktop/package-lock.json` |
@@ -513,7 +513,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | ms | 2.1.3 | MIT | `desktop/package-lock.json` |
 | ms | 2.1.3 | MIT | `web/package-lock.json` |
 | mz | 2.7.0 | MIT | `web/package-lock.json` |
-| nanoid | 3.3.16 | MIT | `web/package-lock.json` |
+| nanoid | 3.3.18 | MIT | `web/package-lock.json` |
 | next | 16.2.12 | MIT | `web/package-lock.json` |
 | node-abi | 4.33.0 | MIT | `desktop/package-lock.json` |
 | node-api-version | 0.2.1 | MIT | `desktop/package-lock.json` |
@@ -538,7 +538,6 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | path-parse | 1.0.7 | MIT | `web/package-lock.json` |
 | pathe | 2.0.3 | MIT | `web/package-lock.json` |
 | pe-library | 0.4.1 | MIT | `desktop/package-lock.json` |
-| pend | 1.2.0 | MIT | `desktop/package-lock.json` |
 | picocolors | 1.1.1 | ISC | `desktop/package-lock.json` |
 | picocolors | 1.1.1 | ISC | `web/package-lock.json` |
 | picomatch | 2.3.2 | MIT | `web/package-lock.json` |
@@ -665,7 +664,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | typescript | 5.9.3 | Apache-2.0 | `web/package-lock.json` |
 | uc.micro | 2.1.0 | MIT | `web/package-lock.json` |
 | undici | 6.28.0 | MIT | `desktop/package-lock.json` |
-| undici | 7.28.0 | MIT | `desktop/package-lock.json` |
+| undici | 7.29.0 | MIT | `desktop/package-lock.json` |
 | undici-types | 6.21.0 | MIT | `web/package-lock.json` |
 | undici-types | 7.16.0 | MIT | `desktop/package-lock.json` |
 | universalify | 0.1.2 | MIT | `desktop/package-lock.json` |
@@ -699,7 +698,6 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | yaml | 2.9.0 | ISC | `web/package-lock.json` |
 | yargs | 17.7.2 | MIT | `desktop/package-lock.json` |
 | yargs-parser | 21.1.1 | ISC | `desktop/package-lock.json` |
-| yauzl | 2.10.0 | MIT | `desktop/package-lock.json` |
 | yocto-queue | 0.1.0 | MIT | `desktop/package-lock.json` |
 
 ## Images, runtimes and bundled assets

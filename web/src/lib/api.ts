@@ -2526,6 +2526,11 @@ export interface DeletionWorkOrderSyncResult {
   applied: number;
   reports_sent: number;
   reports_pending: number;
+  event_deleted: boolean;
+}
+
+export interface DeletionWorkOrderStatusResult {
+  pending: number;
 }
 
 export interface MpBackendPublishResult {
@@ -2695,6 +2700,23 @@ export const mpBackendApi = {
     return response.json();
   },
 
+  /** Check for pending work orders without claiming or applying them. */
+  getDeletionWorkOrderStatus: async (
+    eventId: number,
+  ): Promise<DeletionWorkOrderStatusResult> => {
+    const response = await apiFetch(
+      `${API_BASE}/api/v1/mp-backend/deletion-work-orders/${eventId}/status`,
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(
+        error?.detail ||
+          `Failed to check deletion requests: ${response.statusText}`,
+      );
+    }
+    return response.json();
+  },
+
   /** Retry durable privacy reports after their local event has been erased. */
   retryDeletionReports: async (): Promise<DeletionWorkOrderSyncResult> => {
     const response = await apiFetch(
@@ -2772,9 +2794,13 @@ export interface ProcessorEvidenceKey {
   public_key: string;
   public_key_sha256: string;
   processor_id: string;
+  local_event_id?: number | null;
+  event_evidence_id: string;
+  display_label?: string | null;
+  server_instance_id?: string | null;
   role: "processor";
   algorithm: "Ed25519";
-  state: "active" | "retired" | "private_key_missing";
+  state: "pending_root_approval" | "active" | "revoked" | "retired" | "private_key_missing";
   supersedes_key_id?: string | null;
   created_at: string;
   retired_at?: string | null;
@@ -2791,28 +2817,72 @@ export interface ProcessorEvidenceProof {
 /** Local-only processor-key generation and signing operations. */
 export const processorEvidenceApi = {
   /** List public metadata without reading or returning private key material. */
-  listKeys: async (): Promise<ProcessorEvidenceKey[]> => {
-    const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/keys`);
+  listKeys: async (eventId?: number): Promise<ProcessorEvidenceKey[]> => {
+    const query = eventId === undefined ? "" : `?event_id=${encodeURIComponent(eventId)}`;
+    const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/keys${query}`);
     if (!response.ok) throw new Error("Failed to load local processor keys");
     return response.json();
   },
 
   /** Generate an Ed25519 key directly in the operating-system credential store. */
   generateKey: async (
-    processorId: string,
+    eventId: number,
+    displayLabel?: string,
     supersedesKeyId?: string,
   ): Promise<{ key: ProcessorEvidenceKey; registration: Record<string, unknown> }> => {
     const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/keys`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        processor_id: processorId,
+        event_id: eventId,
+        processor_id: null,
+        display_label: displayLabel || null,
         supersedes_key_id: supersedesKeyId || null,
       }),
     });
     if (!response.ok) {
       const error = await response.json().catch(() => null);
       throw new Error(error?.detail?.message || "Failed to generate processor key");
+    }
+    return response.json();
+  },
+
+  importKey: async (
+    eventId: number,
+    keyPackage: Record<string, unknown>,
+    passphrase: string,
+    displayLabel?: string,
+  ): Promise<{ key: ProcessorEvidenceKey; registration: Record<string, unknown> }> => {
+    const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/keys/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event_id: eventId, package: keyPackage, passphrase, display_label: displayLabel || null }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.detail?.message || "Failed to import the encrypted processor key");
+    }
+    return response.json();
+  },
+
+  enrolKey: async (eventId: number, keyId: string) => {
+    const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/keys/enrol`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event_id: eventId, key_id: keyId }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.detail?.message || "Failed to enrol the processor key");
+    }
+    return response.json();
+  },
+
+  refreshEventStatus: async (eventId: number) => {
+    const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/events/${eventId}/refresh-status`, { method: "POST" });
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.detail?.message || "Failed to refresh processor-key status");
     }
     return response.json();
   },
@@ -2833,26 +2903,6 @@ export const processorEvidenceApi = {
     if (!response.ok) {
       const error = await response.json().catch(() => null);
       throw new Error(error?.detail?.message || "Failed to sign registration challenge");
-    }
-    return response.json();
-  },
-
-  /** Sign an exact processor-controlled statement digest locally. */
-  signStatement: async (
-    keyId: string,
-    document: Record<string, unknown>,
-  ): Promise<{ document: Record<string, unknown>; proof: ProcessorEvidenceProof }> => {
-    const response = await apiFetch(
-      `${API_BASE}/api/v1/processor-evidence/keys/${encodeURIComponent(keyId)}/sign-statement`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document }),
-      },
-    );
-    if (!response.ok) {
-      const error = await response.json().catch(() => null);
-      throw new Error(error?.detail?.message || "Failed to sign processor statement");
     }
     return response.json();
   },

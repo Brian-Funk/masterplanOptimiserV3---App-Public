@@ -5,7 +5,6 @@ import { Button, Spinner, Tooltip } from "@/components/ui";
 import ResourceSelector, {
   ANY_LOCATION_ID,
 } from "@/components/ResourceSelector";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 import {
   taskTemplatesApi,
   TaskTemplate,
@@ -555,7 +554,6 @@ export function TaskBuilderTab({ selectedEvent }: { selectedEvent: any }) {
 
                         {/* Task Name Input */}
                         <div className="mt-4">
-                          <PermittedDataInputNotice eventId={selectedEvent?.id} />
                           <label className="block text-sm font-medium text-foreground-secondary mb-2">
                             Participant-visible task name
                           </label>
@@ -610,7 +608,6 @@ export function TaskBuilderTab({ selectedEvent }: { selectedEvent: any }) {
                                         </span>
                                       )}
                                     </span>
-                                    <span className="block text-xs text-foreground-muted">Operational {String(field.purpose || "instruction").replaceAll("_", " ")}; audience: {String(field.visibility || "not publishable").replaceAll("_", " ")}.</span>
                                   </label>
 
                                   {/* Field input based on type */}
@@ -923,14 +920,13 @@ export function TaskBuilderTab({ selectedEvent }: { selectedEvent: any }) {
                                 <div key={field.id} className="space-y-2">
                                   <label className="block">
                                     <span className="text-sm font-medium text-foreground-secondary">
-                                      Operational {String(field.purpose || "instruction").replaceAll("_", " ")}: {field.name}
+                                      {field.name}
                                       {field.required && (
                                         <span className="text-red-500 ml-1">
                                           *
                                         </span>
                                       )}
                                     </span>
-                                    <span className="block text-xs text-foreground-muted">Audience: {String(field.visibility || "not publishable").replaceAll("_", " ")}.</span>
                                   </label>
 
                                   {/* Field input based on type */}

@@ -8,6 +8,7 @@ const sourceIdentity = resolveSourceIdentity({
 
 const nextConfig = {
   output: 'standalone', // For easier Electron bundling
+  allowedDevOrigins: ['127.0.0.1'],
   turbopack: {
     root: __dirname,
   },

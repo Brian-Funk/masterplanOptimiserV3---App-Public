@@ -1,112 +1,121 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Copy, KeyRound, RefreshCw, ShieldCheck } from "lucide-react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Download, KeyRound, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 
 import { Button, Card } from "@/components/ui";
+import { useEvent } from "@/contexts/EventContext";
 import { processorEvidenceApi, type ProcessorEvidenceKey } from "@/lib/api";
 
+const MAX_KEY_PACKAGE_BYTES = 128 * 1024;
 
-function parseDocument(raw: string): Record<string, unknown> {
-  const value = JSON.parse(raw);
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    throw new Error("The pasted value must be one JSON object.");
-  }
-  return value as Record<string, unknown>;
-}
-
-
-/** Desktop processor-key workflow. Controller keys never enter this application. */
+/** Event-scoped processor custody without exposing routine signing controls. */
 export function ProcessorEvidenceSection() {
+  const { selectedEventId, availableEvents } = useEvent();
+  const selectedEvent = availableEvents.find((item) => item.id === selectedEventId);
   const [keys, setKeys] = useState<ProcessorEvidenceKey[]>([]);
-  const [processorId, setProcessorId] = useState("");
-  const [supersedes, setSupersedes] = useState("");
-  const [selectedKey, setSelectedKey] = useState("");
-  const [challenge, setChallenge] = useState("");
-  const [statement, setStatement] = useState("");
-  const [output, setOutput] = useState("");
+  const [label, setLabel] = useState("");
+  const [keyPackage, setKeyPackage] = useState<Record<string, unknown> | null>(null);
+  const [packageName, setPackageName] = useState("");
+  const [passphrase, setPassphrase] = useState("");
+  const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
 
-  const activeKeys = useMemo(() => keys.filter((key) => key.state === "active"), [keys]);
+  const eventKeys = useMemo(() => keys, [keys]);
+  const current = eventKeys.find((key) => key.state === "active")
+    || eventKeys.find((key) => key.state === "pending_root_approval")
+    || null;
 
   const load = async () => {
-    const next = await processorEvidenceApi.listKeys();
-    setKeys(next);
-    if (!selectedKey && next.some((key) => key.state === "active")) {
-      setSelectedKey(next.find((key) => key.state === "active")!.key_id);
-    }
+    if (!selectedEventId) { setKeys([]); return; }
+    setKeys(await processorEvidenceApi.listKeys(selectedEventId));
   };
+  useEffect(() => {
+    setKeys([]);
+    void load().catch((error) => setMessage(`Error: ${String(error)}`));
+    // The selected event is the scope boundary for local processor custody.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventId]);
 
-  useEffect(() => { load().catch((error) => setMessage(`Error: ${error}`)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const run = async (operation: () => Promise<void>) => {
-    setBusy(true);
-    setMessage("");
+  async function run(name: string, operation: () => Promise<void>) {
+    setBusy(name); setMessage("");
     try { await operation(); }
     catch (error) { setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`); }
-    finally { setBusy(false); }
-  };
+    finally { setBusy(""); }
+  }
 
-  const generate = () => run(async () => {
-    const result = await processorEvidenceApi.generateKey(processorId, supersedes || undefined);
-    setOutput(JSON.stringify(result.registration, null, 2));
-    setSelectedKey(result.key.key_id);
-    await load();
-    setMessage("Processor public-key package created. Verify the identity and fingerprint before the guarded Server ceremony.");
-  });
+  async function generate() {
+    if (!selectedEventId) return;
+    await run("generate", async () => {
+      const created = await processorEvidenceApi.generateKey(selectedEventId, label || undefined);
+      await processorEvidenceApi.enrolKey(selectedEventId, created.key.key_id);
+      await load();
+      setMessage("Processor key created locally and submitted. Ask the Server root to approve the pending event assignment.");
+    });
+  }
 
-  const sign = (kind: "registration" | "statement") => run(async () => {
-    if (!selectedKey) throw new Error("Select an active processor key first.");
-    const document = parseDocument(kind === "registration" ? challenge : statement);
-    const result = kind === "registration"
-      ? await processorEvidenceApi.signRegistration(selectedKey, document)
-      : await processorEvidenceApi.signStatement(selectedKey, document);
-    setOutput(JSON.stringify(result, null, 2));
-    setMessage("The exact public document was signed locally. Only this proof package may be transferred.");
-  });
+  async function importPackage() {
+    if (!selectedEventId || !keyPackage) return;
+    await run("import", async () => {
+      const imported = await processorEvidenceApi.importKey(selectedEventId, keyPackage, passphrase, label || undefined);
+      setPassphrase(""); setKeyPackage(null); setPackageName("");
+      await processorEvidenceApi.enrolKey(selectedEventId, imported.key.key_id);
+      await load();
+      setMessage("Encrypted key imported into the operating-system credential store and submitted for root approval.");
+    });
+  }
 
-  const retire = (key: ProcessorEvidenceKey) => run(async () => {
-    if (!window.confirm(`Retire ${key.key_id} locally only after Server revocation?`)) return;
-    await processorEvidenceApi.retireKey(key.key_id);
-    await load();
-    setMessage("Future local signing is disabled. Historic verification material remains available.");
-  });
+  async function chooseFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]; event.target.value = "";
+    if (!file) return;
+    if (file.size > MAX_KEY_PACKAGE_BYTES) { setMessage("Error: The processor key package is too large."); return; }
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("The file is not a JSON object.");
+      setKeyPackage(parsed as Record<string, unknown>); setPackageName(file.name); setMessage("");
+    } catch (error) { setMessage(`Error: ${error instanceof Error ? error.message : "Invalid key package"}`); }
+  }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-foreground">Processor signing key</h3>
-        <p className="mt-1 text-sm text-foreground-muted">
-          Desktop generates processor keys only. The private key stays in the operating-system credential store. Controller keys are created with the separate controller-custody utility and must never be pasted into Desktop.
-        </p>
-      </div>
+  async function refresh() {
+    if (!selectedEventId) return;
+    await run("refresh", async () => {
+      await processorEvidenceApi.refreshEventStatus(selectedEventId); await load();
+      setMessage("Processor-key status refreshed from the Server.");
+    });
+  }
 
-      {message && <div className={`rounded-lg border px-4 py-3 text-sm ${message.startsWith("Error") ? "border-red-300 bg-red-50 text-red-800" : "border-green-300 bg-green-50 text-green-800"}`}>{message}</div>}
+  if (!selectedEventId) return <p className="text-sm text-foreground-muted">Select an event to configure its Desktop processor key.</p>;
 
-      <Card><div className="space-y-4 p-5">
-        <div className="flex items-start gap-3"><KeyRound className="mt-0.5 h-5 w-5 text-blue-600" /><div><h4 className="font-medium">Generate during processor activation</h4><p className="text-sm text-foreground-muted">Use the processor identity already declared by the controller.</p></div></div>
-        <label className="block text-sm">Processor ID
-          <input value={processorId} onChange={(event) => setProcessorId(event.target.value)} placeholder="prc-example0001" className="mt-1 block w-full rounded-lg border border-bordercl-strong bg-surface px-3 py-2" />
-        </label>
-        <label className="block text-sm">Replaces local processor key, if rotating
-          <select value={supersedes} onChange={(event) => setSupersedes(event.target.value)} className="mt-1 block w-full rounded-lg border-bordercl-strong bg-surface px-3 py-2"><option value="">New registration</option>{activeKeys.filter((key) => key.processor_id === processorId).map((key) => <option key={key.key_id} value={key.key_id}>{key.key_id}</option>)}</select>
-        </label>
-        <Button onClick={generate} disabled={busy || !processorId}>Generate processor key</Button>
-      </div></Card>
-
-      <Card><div className="space-y-4 p-5">
-        <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-blue-600" /><div><h4 className="font-medium">Sign exact processor documents</h4><p className="text-sm text-foreground-muted">Challenges bind the instance, processor, role, fingerprint, action digest, expiry, and nonce.</p></div></div>
-        <select value={selectedKey} onChange={(event) => setSelectedKey(event.target.value)} className="block w-full rounded-lg border-bordercl-strong bg-surface px-3 py-2"><option value="">Select a key</option>{activeKeys.map((key) => <option key={key.key_id} value={key.key_id}>{key.key_id} ({key.processor_id})</option>)}</select>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <label className="text-sm">Registration challenge JSON<textarea value={challenge} onChange={(event) => setChallenge(event.target.value)} rows={9} spellCheck={false} className="mt-1 block w-full rounded-lg border p-3 font-mono text-xs" /><Button className="mt-2" variant="secondary" onClick={() => sign("registration")} disabled={busy || !challenge}>Sign challenge</Button></label>
-          <label className="text-sm">Processor statement JSON<textarea value={statement} onChange={(event) => setStatement(event.target.value)} rows={9} spellCheck={false} className="mt-1 block w-full rounded-lg border p-3 font-mono text-xs" /><Button className="mt-2" variant="secondary" onClick={() => sign("statement")} disabled={busy || !statement}>Sign statement</Button></label>
-        </div>
-      </div></Card>
-
-      <Card><div className="space-y-3 p-5"><div className="flex items-center justify-between"><h4 className="font-medium">Public transfer package</h4><Button variant="secondary" onClick={() => run(async () => { await navigator.clipboard.writeText(output); setMessage("Public package copied."); })} disabled={!output || busy}><Copy className="mr-2 h-4 w-4" />Copy</Button></div><textarea readOnly value={output} rows={10} aria-label="Public processor transfer package" className="block w-full rounded-lg border bg-surface-subtle p-3 font-mono text-xs" /></div></Card>
-
-      <div><div className="flex items-center justify-between"><h4 className="font-medium">Processor public-key inventory</h4><Button variant="ghost" onClick={() => run(load)} disabled={busy}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button></div>{keys.length === 0 ? <p className="text-sm text-foreground-muted">No local processor keys.</p> : keys.map((key) => <div key={key.key_id} className="mt-2 flex items-center justify-between rounded-lg border p-3 text-sm"><div><p className="font-mono">{key.key_id}</p><p className="text-foreground-muted">{key.processor_id} · processor · {key.state}</p></div>{key.state === "active" && <Button variant="ghost" onClick={() => retire(key)} disabled={busy}>Retire after Server revocation</Button>}</div>)}</div>
+  const status = current?.state === "active" ? "Ready" : current?.state === "pending_root_approval" ? "Waiting for root approval" : "Setup required";
+  return <div className="space-y-6">
+    <div>
+      <h3 className="text-lg font-semibold text-foreground">Desktop processor identity</h3>
+      <p className="mt-1 text-sm text-foreground-muted">One processor identity is bound to {selectedEvent?.name || "this event"}. Its private key remains in this operating-system account.</p>
     </div>
-  );
+    {message && <div className={`rounded-lg border px-4 py-3 text-sm ${message.startsWith("Error") ? "border-red-300 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-200" : "border-green-300 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-200"}`}>{message}</div>}
+
+    <Card><div className="flex flex-wrap items-start justify-between gap-4 p-5">
+      <div className="flex items-start gap-3">
+        {current?.state === "active" ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-600" /> : <ShieldCheck className="mt-0.5 h-5 w-5 text-amber-600" />}
+        <div><p className="font-medium">{status}</p><p className="mt-1 text-sm text-foreground-muted">{current ? `${current.display_label || current.processor_id} · ${current.key_id}` : "Publishing and permitted-data acknowledgement remain blocked until setup is complete."}</p></div>
+      </div>
+      {current && <Button variant="outline" onClick={refresh} disabled={!!busy}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>}
+    </div></Card>
+
+    {!current && <div className="grid gap-4 lg:grid-cols-2">
+      <Card><div className="space-y-4 p-5">
+        <div className="flex items-start gap-3"><KeyRound className="mt-0.5 h-5 w-5 text-blue-600" /><div><h4 className="font-medium">Generate on this Desktop</h4><p className="text-sm text-foreground-muted">Recommended when this workstation will retain the processor key.</p></div></div>
+        <label className="block text-sm">Optional display label<input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={128} className="mt-1 block w-full rounded-lg border border-bordercl-strong bg-surface px-3 py-2" placeholder="Event operations workstation" /></label>
+        <Button onClick={generate} disabled={!!busy}>{busy === "generate" ? "Creating…" : "Generate and submit"}</Button>
+      </div></Card>
+      <Card><div className="space-y-4 p-5">
+        <div className="flex items-start gap-3"><Upload className="mt-0.5 h-5 w-5 text-blue-600" /><div><h4 className="font-medium">Import an encrypted key</h4><p className="text-sm text-foreground-muted">Use a package created independently on the public processor-key page.</p></div></div>
+        <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-bordercl-strong px-4 py-4 text-sm"><Download className="h-4 w-4" />{packageName || "Choose encrypted processor-key JSON"}<input type="file" accept="application/json,.json" onChange={chooseFile} className="sr-only" /></label>
+        <label className="block text-sm">Key passphrase<input type="password" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} autoComplete="new-password" className="mt-1 block w-full rounded-lg border border-bordercl-strong bg-surface px-3 py-2" /></label>
+        <Button onClick={importPackage} disabled={!!busy || !keyPackage || passphrase.length < 16}>{busy === "import" ? "Importing…" : "Import and submit"}</Button>
+      </div></Card>
+    </div>}
+
+    {current && <details className="rounded-lg border border-border p-4 text-sm"><summary className="cursor-pointer font-medium">Technical key details</summary><dl className="mt-3 grid gap-2 break-all text-xs sm:grid-cols-[10rem_1fr]"><dt>Processor</dt><dd>{current.processor_id}</dd><dt>Key</dt><dd>{current.key_id}</dd><dt>Fingerprint</dt><dd>{current.public_key_sha256}</dd><dt>Event identity</dt><dd>{current.event_evidence_id}</dd><dt>Server instance</dt><dd>{current.server_instance_id || "Pending"}</dd></dl></details>}
+  </div>;
 }

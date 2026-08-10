@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import { Button, Modal } from "@/components/ui";
-import { PermittedDataInputNotice } from "@/components/PermittedDataInputNotice";
 import {
   capabilitiesApi,
   capabilityTypesApi,
@@ -286,7 +285,6 @@ export function CapabilitiesSection() {
                 </select>
               </div>
               <div>
-                <PermittedDataInputNotice />
                 <label className="block text-sm font-medium text-foreground-secondary mb-1">
                   Internal organiser operational capability description
                 </label>
@@ -298,7 +296,6 @@ export function CapabilitiesSection() {
                   rows={2}
                   className="w-full px-3 py-2 border border-bordercl-strong rounded-lg"
                 />
-                <p className="mt-1 text-xs text-foreground-muted">Organisers only. Describe the operational capability, not a person.</p>
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <Button

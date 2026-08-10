@@ -34,23 +34,22 @@ const policy = {
 describe("PermittedDataInputNotice", () => {
   afterEach(() => {
     mocks.getDataPolicy.mockReset();
+    localStorage.clear();
   });
 
-  it("shows the full prohibited-data warning and exact controller policy before acknowledgement", async () => {
+  it("shows one compact, dismissible link to the exact policy", async () => {
     mocks.getDataPolicy.mockResolvedValue(policy);
+    const user = userEvent.setup();
     render(<PermittedDataInputNotice eventId={11} />);
 
-    expect(await screen.findByText("Operational information only")).toBeInTheDocument();
-    expect(screen.getByText(/Do not enter health, dietary, safeguarding/)).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /exact permitted-data rules v4 for Example Association/i });
+    expect(await screen.findByText("Operational data only")).toBeInTheDocument();
+    expect(screen.getByText(/necessary scheduling and operational information/)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /permitted-data rules v4/i });
     expect(link).toHaveAttribute("href", policy.policy_url);
-    expect(screen.getByText(/Controller-selected event retention grace: 7 days/)).toBeInTheDocument();
-    expect(screen.getByText(/Enabled policy features: offline_schedule, public_schedule/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /exact privacy notice/i })).toHaveAttribute("href", policy.privacy_url);
-    expect(screen.getByRole("link", { name: policy.incident_contact! })).toHaveAttribute(
-      "href",
-      `mailto:${policy.incident_contact}`,
-    );
+    expect(screen.getByRole("link", { name: "Privacy notice" })).toHaveAttribute("href", policy.privacy_url);
+
+    await user.click(screen.getByRole("button", { name: "Dismiss permitted-data guidance" }));
+    expect(screen.queryByText("Operational data only")).not.toBeInTheDocument();
   });
 
   it("retains a keyboard-accessible compact exact-policy link on a narrow viewport", async () => {
@@ -60,15 +59,7 @@ describe("PermittedDataInputNotice", () => {
     render(<PermittedDataInputNotice />);
 
     const link = await screen.findByRole("link", { name: /permitted-data rules v4/i });
-    expect(screen.getByText(/Operational data only/)).toBeInTheDocument();
-    expect(screen.getByText(/for Example Association/)).toBeInTheDocument();
     expect(link).toHaveAttribute("href", policy.policy_url);
-    expect(screen.getByRole("link", { name: /exact privacy notice/i })).toHaveAttribute("href", policy.privacy_url);
-    expect(screen.getByText(/Enabled policy features: offline_schedule, public_schedule/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: policy.incident_contact! })).toHaveAttribute(
-      "href",
-      `mailto:${policy.incident_contact}`,
-    );
     await user.tab();
     expect(link).toHaveFocus();
   });
@@ -81,9 +72,34 @@ describe("PermittedDataInputNotice", () => {
     rerender(<PermittedDataInputNotice eventId={12} />);
     await waitFor(() => expect(mocks.getDataPolicy).toHaveBeenCalledWith(12));
   });
+
+  it("keeps a dismissal across the dashboard for the same policy digest", async () => {
+    mocks.getDataPolicy.mockResolvedValue(policy);
+    const user = userEvent.setup();
+    const first = render(<PermittedDataInputNotice eventId={11} />);
+    await user.click(await screen.findByRole("button", { name: "Dismiss permitted-data guidance" }));
+    first.unmount();
+
+    render(<PermittedDataInputNotice eventId={12} />);
+    await waitFor(() => expect(mocks.getDataPolicy).toHaveBeenCalledWith(12));
+    expect(screen.queryByText("Operational data only")).not.toBeInTheDocument();
+  });
+
+  it("shows the notice again when the exact policy digest changes", async () => {
+    mocks.getDataPolicy
+      .mockResolvedValueOnce(policy)
+      .mockResolvedValueOnce({ ...policy, policy_version: 5, policy_sha256: "b".repeat(64) });
+    const user = userEvent.setup();
+    const { rerender } = render(<PermittedDataInputNotice eventId={11} />);
+    await user.click(await screen.findByRole("button", { name: "Dismiss permitted-data guidance" }));
+
+    rerender(<PermittedDataInputNotice eventId={12} />);
+    expect(await screen.findByText("Operational data only")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /permitted-data rules v5/i })).toBeInTheDocument();
+  });
 });
 
-describe("broad-content notice placement inventory", () => {
+describe("global permitted-data notice placement", () => {
   const inventoriedFiles = [
     "../src/app/dashboard/admin/tabs/AudienceTeamsContent.tsx",
     "../src/app/dashboard/admin/tabs/GeneralScheduleTab.tsx",
@@ -97,9 +113,17 @@ describe("broad-content notice placement inventory", () => {
     "../src/components/TaskEditModal.tsx",
   ];
 
-  it.each(inventoriedFiles)("keeps the reusable notice in %s", (relativePath) => {
+  it.each(inventoriedFiles)("does not repeat the notice in %s", (relativePath) => {
     const source = readFileSync(path.resolve(process.cwd(), "tests", relativePath), "utf8");
-    expect(source).toContain("<PermittedDataInputNotice");
+    expect(source).not.toContain("PermittedDataInputNotice");
+  });
+
+  it("places the notice once in the dashboard shell", () => {
+    const source = readFileSync(
+      path.resolve(process.cwd(), "src/app/dashboard/layout.tsx"),
+      "utf8",
+    );
+    expect(source.match(/<PermittedDataInputNotice/g)).toHaveLength(1);
   });
 
   it("keeps public-output labels precise in event and schedule editors", () => {
@@ -111,9 +135,16 @@ describe("broad-content notice placement inventory", () => {
       path.resolve(process.cwd(), "src/app/dashboard/admin/tabs/GeneralScheduleTab.tsx"),
       "utf8",
     );
+    const masterplanSource = readFileSync(
+      path.resolve(process.cwd(), "src/app/dashboard/admin/tabs/ScheduleTab.tsx"),
+      "utf8",
+    );
     expect(eventSource).toContain("Participant-visible event name");
     expect(eventSource).toContain("Participant-visible operational event location");
     expect(scheduleSource).toContain("Public schedule item title");
     expect(scheduleSource).toContain("Public schedule description");
+    expect(scheduleSource).toContain("<Globe2");
+    expect(masterplanSource).toContain("<LockKeyhole");
+    expect(masterplanSource).toContain("Authenticated");
   });
 });
