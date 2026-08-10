@@ -215,6 +215,42 @@ function auditLicenseMetadata(root, failures) {
   }
 }
 
+function auditWorkflowSecurity(root, failures) {
+  const workflowDir = path.join(root, '.github', 'workflows');
+  if (fs.existsSync(workflowDir)) {
+    for (const entry of fs.readdirSync(workflowDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !/\.ya?ml$/i.test(entry.name)) continue;
+      const relative = `.github/workflows/${entry.name}`;
+      const content = fs.readFileSync(path.join(workflowDir, entry.name), 'utf8');
+      for (const match of content.matchAll(/^\s*uses:\s*([^\s#]+)(?:\s+#.*)?$/gm)) {
+        const reference = match[1];
+        if (reference.startsWith('./')) continue;
+        if (!/^[^@\s]+@[a-f0-9]{40}$/.test(reference)) {
+          failures.push(`workflow Action must use a full commit SHA: ${relative} (${reference})`);
+        }
+      }
+    }
+  }
+
+  const docsWorkflowPath = path.join(workflowDir, 'docs.yml');
+  const docsLockPath = path.join(root, 'docs', 'requirements.lock.txt');
+  if (fs.existsSync(docsWorkflowPath)) {
+    const workflow = fs.readFileSync(docsWorkflowPath, 'utf8');
+    const workflowHeader = workflow.split(/^jobs:\s*$/m, 1)[0];
+    if (/^\s{2}(?:pages|id-token):\s*write\s*$/m.test(workflowHeader)) {
+      failures.push('documentation workflow must grant Pages and OIDC write only to its deployment job');
+    }
+    if (!workflow.includes('pip install --require-hashes -r docs/requirements.lock.txt')) {
+      failures.push('documentation workflow must install the hash-locked dependency set');
+    }
+    if (!fs.existsSync(docsLockPath)) {
+      failures.push('documentation dependency lock is missing: docs/requirements.lock.txt');
+    } else if (!fs.readFileSync(docsLockPath, 'utf8').includes('--hash=sha256:')) {
+      failures.push('documentation dependency lock does not contain package hashes');
+    }
+  }
+}
+
 function auditPublication(root, options = {}) {
   const failures = [];
   const files = options.files ?? listPublicationFiles(root);
@@ -272,6 +308,7 @@ function auditPublication(root, options = {}) {
     failures.push('web/legal-artifacts/THIRD-PARTY-NOTICES.md must exactly match the root notice');
   }
   auditLicenseMetadata(root, failures);
+  auditWorkflowSecurity(root, failures);
   return failures;
 }
 
@@ -334,6 +371,7 @@ module.exports = {
   auditHistoricalPaths,
   auditPublication,
   auditText,
+  auditWorkflowSecurity,
   forbiddenPathReason,
   listHistoryPaths,
   listPublicationFiles,

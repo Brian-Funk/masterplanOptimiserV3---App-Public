@@ -44,7 +44,10 @@ test('tagged and recovered releases require a signed green public commit and syn
 test('release artefacts are bound to a keyless signed checksum manifest', () => {
   const workflow = releaseWorkflow();
 
-  assert.match(workflow, /sigstore\/cosign-installer@v3/);
+  assert.match(
+    workflow,
+    /sigstore\/cosign-installer@[a-f0-9]{40}\s+# v3/,
+  );
   assert.match(
     workflow,
     /cosign sign-blob --yes --bundle checksums\.txt\.bundle checksums\.txt/,
