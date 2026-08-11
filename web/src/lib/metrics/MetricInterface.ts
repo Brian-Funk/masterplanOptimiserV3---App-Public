@@ -72,7 +72,7 @@ export interface Person {
   name: string;
   first_name: string;
   last_name: string;
-  email: string;
+  email: string | null;
   max_hours_per_day?: number | null;
   capabilities: string[]; // machine_names e.g. ["is_orga", "can_drive"]
 }

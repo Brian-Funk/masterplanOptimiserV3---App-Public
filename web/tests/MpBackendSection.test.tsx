@@ -13,6 +13,7 @@ const mockMpBackendApi = vi.hoisted(() => ({
   getDataPolicy: vi.fn(),
   getDeletionWorkOrderStatus: vi.fn(),
   syncDeletionWorkOrders: vi.fn(),
+  exportSetup: vi.fn(),
 }));
 
 vi.mock("@/contexts/EventContext", () => ({
@@ -79,5 +80,29 @@ describe("MP-Backend deletion work orders", () => {
       "Synthetic Event was deleted from this Desktop and its privacy report was sent.",
       "success",
     );
+  });
+
+  it("reports people who need an email after downloading Server setup", async () => {
+    mockMpBackendApi.exportSetup.mockResolvedValue({
+      event: { name: "Synthetic Event" },
+      users: [
+        { display_name: "Has Email", email: "person@example.org" },
+        { display_name: "Needs Email", email: null },
+      ],
+    });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:server-setup");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+
+    const user = userEvent.setup();
+    render(<MpBackendSection />);
+    await user.click(
+      await screen.findByRole("button", { name: "Export Server Setup" }),
+    );
+
+    expect(click).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/1 person cannot receive activation/i)).toBeVisible();
   });
 });
