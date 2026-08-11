@@ -176,15 +176,15 @@ async def get_template_variables(
                     "source": "template-field",
                 })
 
-    # Add per-person phone variables if event_id is provided
+    # Add per-person contact-email variables if event_id is provided
     if event_id:
         persons = db.query(Person).filter(Person.event_id == event_id).all()
         for person in persons:
             sanitized = _sanitize_field_name(f"{person.first_name} {person.last_name}")
             full_name = f"{person.first_name} {person.last_name}"
             variables.append({
-                "name": f"person.{sanitized}.phone",
-                "label": f"{full_name}  -  Phone",
+                "name": f"person.{sanitized}.email",
+                "label": f"{full_name}  -  Email",
                 "source": "person",
             })
 

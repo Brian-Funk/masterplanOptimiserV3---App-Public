@@ -506,13 +506,13 @@ def _build_template_variables(
             if val is not None:
                 variables[var_name] = _format_field_value(val)
 
-    # Add per-person phone variables (person.<sanitized_name>.phone)
+    # Add per-person contact-email variables (person.<sanitized_name>.email)
     for pid, person in persons_by_id.items():
         first = person.get("first_name", "")
         last = person.get("last_name", "")
         sanitized = _sanitize_field_name(f"{first} {last}")
-        phone = person.get("phone") or ""
-        variables[f"person.{sanitized}.phone"] = phone
+        email = person.get("email") or ""
+        variables[f"person.{sanitized}.email"] = email
 
     return variables
 
