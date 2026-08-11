@@ -40,10 +40,11 @@ class PersonUnavailabilityIn(BaseModel):
 
 
 class PersonCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     first_name: str
     last_name: str
     email: Optional[EmailStr] = None
-    phone: Optional[str] = None
     capabilities: List[str] = Field(default_factory=list)  # List of capability machine_names
     unavailabilities: List[PersonUnavailabilityIn] = Field(default_factory=list)
     max_hours_per_day: Optional[float] = None
@@ -52,10 +53,11 @@ class PersonCreate(BaseModel):
 
 
 class PersonUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[EmailStr] = None
-    phone: Optional[str | None] = None
     capabilities: Optional[List[str]] = None  # List of capability machine_names
     unavailabilities: Optional[List[PersonUnavailabilityIn]] = None
     max_hours_per_day: Optional[float | None] = None
@@ -71,7 +73,6 @@ class PersonResponse(BaseModel):
     first_name: str
     last_name: str
     email: Optional[str] = None
-    phone: Optional[str]
     capabilities: List[str] = Field(default_factory=list)
     unavailabilities: List[dict[str, datetime]] = Field(default_factory=list)
     max_hours_per_day: Optional[float] = None
@@ -127,7 +128,6 @@ def _person_response(db: Session, person: Person) -> dict:
         "first_name": person.first_name,
         "last_name": person.last_name,
         "email": person.email,
-        "phone": person.phone,
         "capabilities": _get_person_capability_machine_names(db, person.id),
         "unavailabilities": [
             {"starts_at": row.starts_at, "ends_at": row.ends_at}
@@ -203,7 +203,6 @@ async def create_person(
         first_name=person_data.first_name,
         last_name=person_data.last_name,
         email=person_data.email,
-        phone=person_data.phone,
         max_hours_per_day=person_data.max_hours_per_day,
         home_location_id=person_data.home_location_id,
         google_email=person_data.google_email
@@ -264,10 +263,8 @@ async def update_person(
         person.first_name = person_data.first_name
     if person_data.last_name is not None:
         person.last_name = person_data.last_name
-    if person_data.email is not None:
+    if "email" in person_data.model_fields_set:
         person.email = person_data.email
-    if person_data.phone is not None:
-        person.phone = person_data.phone
     if person_data.unavailabilities is not None:
         _replace_unavailabilities(db, person, person_data.unavailabilities)
     if person_data.max_hours_per_day is not None:

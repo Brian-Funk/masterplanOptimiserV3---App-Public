@@ -127,6 +127,15 @@ async def startup_event():
                 "application with its converted output."
             )
 
+        from app.core.data_sanitation import erase_retired_person_phone_values
+
+        erased_phone_values = erase_retired_person_phone_values(engine, person_columns)
+        if erased_phone_values:
+            print(
+                "[Startup] Erased "
+                f"{erased_phone_values} retired person phone value(s)"
+            )
+
     # Create tables only for a new or already-current database.
     Base.metadata.create_all(bind=engine)
     

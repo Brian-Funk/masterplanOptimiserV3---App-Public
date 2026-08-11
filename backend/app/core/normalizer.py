@@ -115,7 +115,6 @@ class Person(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
-    phone: Optional[str] = None
     home_location_id: Optional[int] = None
     max_hours_per_day: Optional[float] = None
     created_at: Optional[str] = None

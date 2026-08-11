@@ -654,6 +654,13 @@ def validate_import_payload(payload: Any) -> ImportValidationResult:
         for idx, person in enumerate(persons):
             if not isinstance(person, dict):
                 continue
+            if "phone" in person:
+                errors.append(_issue(
+                    "error",
+                    "Retired person phone field",
+                    "Phone fields are no longer supported. Remove 'phone' and use the optional 'email' field instead.",
+                    f"{event_path}.persons[{idx}].phone",
+                ))
             home_location_id = person.get("home_location_id")
             if home_location_id is not None and home_location_id not in location_ids:
                 errors.append(_issue(
@@ -1829,7 +1836,7 @@ async def copy_from_event(req: CopyFromEventRequest, db: Session = Depends(get_d
                 new_p = Person(
                     event_id=target.id,
                     first_name=p.first_name, last_name=p.last_name,
-                    email=p.email, phone=p.phone, google_email=p.google_email,
+                    email=p.email, google_email=p.google_email,
                     max_hours_per_day=p.max_hours_per_day,
                     home_location_id=home_loc,
                 )

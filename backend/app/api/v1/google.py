@@ -468,7 +468,6 @@ async def publish_to_calendar(
             "first_name": p.first_name,
             "last_name": p.last_name,
             "email": p.email,
-            "phone": p.phone,
             "google_email": p.google_email,
         }
         for p in persons

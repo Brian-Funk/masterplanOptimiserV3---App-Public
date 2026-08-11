@@ -20,7 +20,6 @@ class Person(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     email = Column(String, nullable=True)  # Not unique globally, unique per event
-    phone = Column(String)
     google_email = Column(String, nullable=True)  # Linked Google account email for calendar invites
     
     # Working constraints
