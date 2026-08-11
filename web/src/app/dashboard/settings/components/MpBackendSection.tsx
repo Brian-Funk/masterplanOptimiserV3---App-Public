@@ -285,7 +285,14 @@ export function MpBackendSection() {
       a.download = `server-setup-${data.event.name.replace(/\s+/g, "-").toLowerCase()}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setMessage("Setup file downloaded");
+      const missingEmails = data.users.filter(
+        (person) => !person.email?.trim(),
+      ).length;
+      setMessage(
+        missingEmails === 0
+          ? "Setup file downloaded. Every person has an email address for Server activation."
+          : `Setup file downloaded. ${missingEmails} person${missingEmails === 1 ? "" : "s"} cannot receive activation or additional-passkey email until a Server administrator adds an address.`,
+      );
     } catch (e: any) {
       setError(e.message || "Export failed");
     } finally {

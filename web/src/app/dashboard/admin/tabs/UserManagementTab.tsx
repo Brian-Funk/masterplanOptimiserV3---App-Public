@@ -26,7 +26,7 @@ export function PersonManagementTab({ selectedEvent }: { selectedEvent: any }) {
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
-    phone: "",
+    email: "",
     capabilities: [] as string[],
     max_hours_per_day: "",
     home_location_id: "" as string | number,
@@ -255,7 +255,7 @@ export function PersonManagementTab({ selectedEvent }: { selectedEvent: any }) {
     setFormData({
       first_name: person.first_name || "",
       last_name: person.last_name || "",
-      phone: person.phone || "",
+      email: person.email || "",
       capabilities: person.capabilities || [],
       max_hours_per_day: person.max_hours_per_day?.toString() || "",
       home_location_id: person.home_location_id || "",
@@ -271,7 +271,7 @@ export function PersonManagementTab({ selectedEvent }: { selectedEvent: any }) {
     setFormData({
       first_name: "",
       last_name: "",
-      phone: "",
+      email: "",
       capabilities: [],
       max_hours_per_day: "",
       home_location_id: "",
@@ -292,7 +292,7 @@ export function PersonManagementTab({ selectedEvent }: { selectedEvent: any }) {
       setFormData({
         first_name: selectedPerson.first_name || "",
         last_name: selectedPerson.last_name || "",
-        phone: selectedPerson.phone || "",
+        email: selectedPerson.email || "",
         capabilities: selectedPerson.capabilities || [],
         max_hours_per_day: selectedPerson.max_hours_per_day?.toString() || "",
         home_location_id: selectedPerson.home_location_id || "",
@@ -333,7 +333,7 @@ export function PersonManagementTab({ selectedEvent }: { selectedEvent: any }) {
       const personData = {
         first_name: formData.first_name,
         last_name: formData.last_name,
-        phone: formData.phone || null,
+        email: formData.email || null,
         capabilities: formData.capabilities,
         unavailabilities: formData.unavailabilities,
         max_hours_per_day: formData.max_hours_per_day
@@ -775,19 +775,20 @@ export function PersonManagementTab({ selectedEvent }: { selectedEvent: any }) {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-foreground-muted uppercase mb-1">
-                            Phone
+                            Email (optional)
                           </label>
                           <input
-                            type="tel"
-                            value={formData.phone}
+                            type="email"
+                            value={formData.email}
                             onChange={(e) =>
                               setFormData({
                                 ...formData,
-                                phone: e.target.value,
+                                email: e.target.value,
                               })
                             }
                             className="w-full px-3 py-2 border border-bordercl-strong rounded-lg text-sm"
-                            placeholder="+41 12 345 56 78"
+                            placeholder="person@example.org"
+                            autoComplete="email"
                           />
                         </div>
                       </div>
@@ -802,14 +803,17 @@ export function PersonManagementTab({ selectedEvent }: { selectedEvent: any }) {
                             {selectedPerson.last_name}
                           </span>
                         </div>
-                        {selectedPerson.phone && (
+                        {selectedPerson.email && (
                           <div>
                             <span className="text-xs font-medium text-foreground-muted uppercase block mb-1">
-                              Phone
+                              Email
                             </span>
-                            <span className="text-sm text-foreground">
-                              {selectedPerson.phone}
-                            </span>
+                            <a
+                              className="text-sm text-primary hover:underline"
+                              href={`mailto:${selectedPerson.email}`}
+                            >
+                              {selectedPerson.email}
+                            </a>
                           </div>
                         )}
                       </div>

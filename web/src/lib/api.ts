@@ -94,7 +94,7 @@ export interface Person {
   evidence_subject_id: string;
   first_name: string;
   last_name: string;
-  email: string;
+  email: string | null;
   google_email?: string | null;
   home_location_id?: number | null;
   max_hours_per_day?: number | null;

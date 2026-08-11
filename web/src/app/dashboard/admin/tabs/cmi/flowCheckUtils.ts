@@ -161,7 +161,6 @@ export async function performFlowCheck(
       first_name: p.first_name || null,
       last_name: p.last_name || null,
       email: p.email || null,
-      phone: p.phone || null,
       home_location_id:
         p.home_location_id != null ? Number(p.home_location_id) : null,
       max_hours_per_day: p.max_hours_per_day ?? null,
