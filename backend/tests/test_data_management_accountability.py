@@ -320,6 +320,8 @@ def test_shareable_export_keeps_global_setup_and_redacts_event_identifiers(tmp_p
         assert "private assembly hall" not in rendered
         assert "https://private.example.test" not in rendered
         assert "created_at" not in rendered
+        assert "updated_at" not in rendered
+        assert "generated_at" not in rendered
         assert result["shareable_setup_report"]["redactions"] >= 4
         assert result["global_data"]["capabilities"][0]["machine_name"] == "technical_support"
         assert validate_import_payload(deepcopy(result)).isValid is True

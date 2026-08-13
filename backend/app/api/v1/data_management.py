@@ -5,7 +5,7 @@ import json
 import logging
 import re
 from copy import deepcopy
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -318,10 +318,6 @@ def _serialize_shareable_setup(db: Session) -> dict:
             },
             "excluded_categories": SHAREABLE_EXCLUDED_CATEGORIES,
             "redactions": report["redactions"],
-            "generated_at": datetime.now(timezone.utc)
-            .replace(microsecond=0)
-            .isoformat()
-            .replace("+00:00", "Z"),
         },
     }
 
