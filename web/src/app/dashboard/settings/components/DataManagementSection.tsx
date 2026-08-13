@@ -133,7 +133,10 @@ export function DataManagementSection() {
         showMessage("success", "Export downloaded successfully");
       }
     } catch (err) {
-      showMessage("error", `Export failed: ${err}`);
+      showMessage(
+        "error",
+        `Export failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
     } finally {
       setExporting(false);
     }

@@ -31,6 +31,7 @@ from app.models import (
     Event,
     Person,
     PersonUnavailability,
+    TaskInstance,
     TaskTemplate,
     TaskType,
     Theme,
@@ -259,6 +260,7 @@ def test_shareable_export_keeps_global_setup_and_redacts_event_identifiers(tmp_p
             location="Private Assembly Hall",
             start_date=date(2026, 8, 1),
             end_date=date(2026, 8, 2),
+            meta_data={"day_aliases": {"2026-08-01": "CMOJ-DAY"}},
         )
         db.add(event)
         db.flush()
@@ -286,7 +288,7 @@ def test_shareable_export_keeps_global_setup_and_redacts_event_identifiers(tmp_p
             name="Technical support",
             description=(
                 "Previously coordinated by Alice Example for Private Vienna Session. "
-                "Reference: https://private.example.test/runbook"
+                "Reference: https://private.example.test/runbook. CMOJ-DAY Driver"
             ),
             capability_type_id=capability_type.id,
         )
@@ -306,6 +308,30 @@ def test_shareable_export_keeps_global_setup_and_redacts_event_identifiers(tmp_p
                 "config": {},
             }],
         ))
+        db.flush()
+        reusable_checklist = TaskTemplate(
+            machine_name="checklist",
+            name="Checklist",
+            description="Reusable checklist",
+            task_type_id=task_type.id,
+            fields=[],
+        )
+        reusable_transfer = Capability(
+            machine_name="watch_transfer",
+            name="Watch transfer",
+            description="Reusable transfer preference",
+            capability_type_id=capability_type.id,
+        )
+        db.add_all([reusable_checklist, reusable_transfer])
+        db.flush()
+        db.add(TaskInstance(
+            name="Checklist",
+            event_id=event.id,
+            template_id=reusable_checklist.id,
+            task_type_id=task_type.id,
+            date="2026-08-01",
+            field_values={"notes": "food transfer symposium leadership"},
+        ))
         db.commit()
 
         result = asyncio.run(export_data(ExportRequest(scope="shareable"), db))
@@ -322,8 +348,18 @@ def test_shareable_export_keeps_global_setup_and_redacts_event_identifiers(tmp_p
         assert "created_at" not in rendered
         assert "updated_at" not in rendered
         assert "generated_at" not in rendered
+        assert "day_aliases" not in rendered
+        assert "cmoj-day driver" in rendered
         assert result["shareable_setup_report"]["redactions"] >= 4
         assert result["global_data"]["capabilities"][0]["machine_name"] == "technical_support"
+        assert any(
+            row["machine_name"] == "watch_transfer"
+            for row in result["global_data"]["capabilities"]
+        )
+        assert any(
+            row["machine_name"] == "checklist"
+            for row in result["global_data"]["task_templates"]
+        )
         assert validate_import_payload(deepcopy(result)).isValid is True
     finally:
         db.close()

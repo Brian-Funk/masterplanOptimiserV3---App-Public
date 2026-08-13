@@ -163,7 +163,6 @@ def _shareable_sensitive_values(db: Session) -> list[str]:
             event.evidence_id,
             event.google_calendar_id,
             event.mp_backend_url,
-            event.meta_data,
         ):
             _add_sensitive_value(values, value)
 
@@ -181,26 +180,62 @@ def _shareable_sensitive_values(db: Session) -> list[str]:
             ):
                 _add_sensitive_value(values, value)
 
+        # Task and schedule labels deliberately reuse global template vocabulary.
+        # Treating those ordinary words as identities would redact the setup they
+        # are meant to demonstrate (for example "transfer" or "checklist").
+        # Personal, event, group and location values still cover the identifying
+        # material that can legitimately cross into reusable display text.
         sensitive_collections = {
             "locations": ("name", "address", "details"),
             "groups": ("name", "meta_data"),
-            "tasks": ("title", "description", "constraints", "additional"),
-            "task_instances": ("name", "field_values", "constraints", "additional"),
-            "audience_categories": None,
-            "schedule_views": None,
-            "session_element_types": None,
-            "audience_teams": None,
-            "session_elements": None,
         }
         for collection, keys in sensitive_collections.items():
             for row in exported.get(collection, []):
-                if keys is None:
-                    for key, value in row.items():
-                        if key not in SHAREABLE_METADATA_KEYS and not key.endswith("_id"):
-                            _add_sensitive_value(values, value)
-                else:
-                    for key in keys:
-                        _add_sensitive_value(values, row.get(key))
+                for key in keys:
+                    _add_sensitive_value(values, row.get(key))
+
+    return sorted(values, key=lambda item: (-len(item), item.casefold()))
+
+
+def _shareable_structural_sensitive_values(db: Session) -> list[str]:
+    """Return high-confidence identities that may never enter a machine key."""
+    values: set[str] = set()
+    for event in db.query(Event).all():
+        for value in (
+            event.name,
+            event.location,
+            event.evidence_id,
+            event.google_calendar_id,
+            event.mp_backend_url,
+        ):
+            _add_sensitive_value(values, value)
+
+        exported = _serialize_event(db, event)
+        for person in exported.get("persons", []):
+            first = str(person.get("first_name") or "").strip()
+            last = str(person.get("last_name") or "").strip()
+            for value in (
+                first,
+                last,
+                f"{first} {last}".strip(),
+                person.get("email"),
+                person.get("google_email"),
+                person.get("evidence_subject_id"),
+            ):
+                _add_sensitive_value(values, value)
+
+        # A complete multi-word group or location label can identify an event.
+        # A single generic word ("leadership", "food", "transfer") cannot do so
+        # reliably and commonly forms part of a reusable machine identifier.
+        for collection, keys in {
+            "locations": ("name", "address"),
+            "groups": ("name",),
+        }.items():
+            for row in exported.get(collection, []):
+                for key in keys:
+                    candidate = row.get(key)
+                    if isinstance(candidate, str) and len(re.findall(r"[A-Za-z0-9]+", candidate)) >= 2:
+                        _add_sensitive_value(values, candidate)
 
     return sorted(values, key=lambda item: (-len(item), item.casefold()))
 
@@ -234,6 +269,7 @@ def _redact_shareable_text(value: str, sensitive_values: list[str]) -> tuple[str
 def _sanitize_shareable_value(
     value: Any,
     sensitive_values: list[str],
+    structural_sensitive_values: list[str],
     *,
     path: str,
     key: Optional[str] = None,
@@ -250,6 +286,7 @@ def _sanitize_shareable_value(
             sanitized[child_key] = _sanitize_shareable_value(
                 child_value,
                 sensitive_values,
+                structural_sensitive_values,
                 path=child_path,
                 key=child_key,
                 blockers=blockers,
@@ -261,6 +298,7 @@ def _sanitize_shareable_value(
             _sanitize_shareable_value(
                 item,
                 sensitive_values,
+                structural_sensitive_values,
                 path=f"{path}[{index}]",
                 key=key,
                 blockers=blockers,
@@ -272,7 +310,7 @@ def _sanitize_shareable_value(
         return value
 
     if key in SHAREABLE_STRUCTURAL_KEYS:
-        if _contains_sensitive_text(value, sensitive_values):
+        if _contains_sensitive_text(value, structural_sensitive_values):
             blockers.append(path)
         return value
 
@@ -284,11 +322,13 @@ def _sanitize_shareable_value(
 def _serialize_shareable_setup(db: Session) -> dict:
     """Create the privacy-safe, import-compatible global configuration payload."""
     sensitive_values = _shareable_sensitive_values(db)
+    structural_sensitive_values = _shareable_structural_sensitive_values(db)
     blockers: list[str] = []
     report = {"redactions": 0}
     global_data = _sanitize_shareable_value(
         deepcopy(_serialize_global(db)),
         sensitive_values,
+        structural_sensitive_values,
         path="global_data",
         blockers=blockers,
         report=report,
