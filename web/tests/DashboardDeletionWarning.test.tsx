@@ -32,13 +32,10 @@ describe("global Desktop deletion warning", () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     mockEventsApi.getAll.mockResolvedValue([
-      { id: 7, name: "Configured event" },
-      { id: 8, name: "Unconfigured event" },
+      { id: 7, name: "Configured event", mp_backend_url: "https://server.example.invalid" },
+      { id: 8, name: "Unconfigured event", mp_backend_url: null },
     ]);
-    mockMpBackendApi.getDeletionWorkOrderStatus.mockImplementation(async (eventId: number) => {
-      if (eventId === 7) return { pending: 1 };
-      throw new Error("MP-Backend not configured");
-    });
+    mockMpBackendApi.getDeletionWorkOrderStatus.mockResolvedValue({ pending: 1 });
   });
 
   it("checks every event and warns without relying on dashboard event selection", async () => {
@@ -53,7 +50,7 @@ describe("global Desktop deletion warning", () => {
     );
     await waitFor(() => {
       expect(mockMpBackendApi.getDeletionWorkOrderStatus).toHaveBeenCalledWith(7);
-      expect(mockMpBackendApi.getDeletionWorkOrderStatus).toHaveBeenCalledWith(8);
+      expect(mockMpBackendApi.getDeletionWorkOrderStatus).not.toHaveBeenCalledWith(8);
     });
     expect(mockAddToast).toHaveBeenCalledWith(
       "A Server deletion request is waiting. Open MP-Backend settings to review it.",

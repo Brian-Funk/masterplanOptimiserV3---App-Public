@@ -39,6 +39,7 @@ export interface Event {
   start_date?: string;
   end_date?: string;
   google_calendar_id?: string | null;
+  mp_backend_url?: string | null;
   meta_data?: {
     day_aliases?: Record<string, string>;
     schedule_day_range?: {
