@@ -2234,7 +2234,12 @@ export const dataManagementApi = {
         event_ids: eventIds,
       }),
     });
-    if (!response.ok) throw new Error(`Export failed: ${response.statusText}`);
+    if (!response.ok) {
+      const err = await response
+        .json()
+        .catch(() => ({ detail: response.statusText }));
+      throw new Error(importApiErrorMessage(err, response.statusText));
+    }
     return response.json();
   },
 
