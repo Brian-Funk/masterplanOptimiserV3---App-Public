@@ -37,9 +37,9 @@ export function DataManagementSection() {
   const { refresh: refreshTaskInstances } = useTaskInstances();
 
   // Export state
-  const [exportScope, setExportScope] = useState<"event" | "global" | "full">(
-    "event",
-  );
+  const [exportScope, setExportScope] = useState<
+    "event" | "global" | "full" | "shareable"
+  >("event");
   const [exporting, setExporting] = useState(false);
 
   // Import state
@@ -111,11 +111,27 @@ export function DataManagementSection() {
       const scopeLabel =
         exportScope === "event"
           ? currentEvent?.name?.replace(/\s+/g, "_") || "event"
-          : exportScope;
+          : exportScope === "shareable"
+            ? "shareable_setup"
+            : exportScope;
       a.download = `masterplan_${scopeLabel}_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showMessage("success", "Export downloaded successfully");
+      if (exportScope === "shareable") {
+        const report = data.shareable_setup_report as
+          | { included_counts?: Record<string, number>; redactions?: number }
+          | undefined;
+        const included = Object.values(report?.included_counts || {}).reduce(
+          (total, count) => total + count,
+          0,
+        );
+        showMessage(
+          "success",
+          `Shareable setup downloaded with ${included} reusable records and ${report?.redactions || 0} automatic ${report?.redactions === 1 ? "redaction" : "redactions"}.`,
+        );
+      } else {
+        showMessage("success", "Export downloaded successfully");
+      }
     } catch (err) {
       showMessage("error", `Export failed: ${err}`);
     } finally {
@@ -371,6 +387,16 @@ export function DataManagementSection() {
                     />
                     Full Backup
                   </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="export-scope"
+                      checked={exportScope === "shareable"}
+                      onChange={() => setExportScope("shareable")}
+                      className="text-blue-600"
+                    />
+                    Shareable Setup
+                  </label>
                 </div>
                 {exportScope === "event" && (
                   <p className="mt-1.5 text-xs text-foreground-faint">
@@ -387,6 +413,15 @@ export function DataManagementSection() {
                 {exportScope === "full" && (
                   <p className="mt-1.5 text-xs text-foreground-faint">
                     Exports all projects and application settings.
+                  </p>
+                )}
+                {exportScope === "shareable" && (
+                  <p className="mt-1.5 max-w-2xl text-xs leading-5 text-foreground-faint">
+                    Exports reusable themes, types, capabilities, templates,
+                    roles, sources, and calendar formats. Projects, people,
+                    groups, locations, schedules, results, publishing details,
+                    and credentials are excluded. Known identifying text is
+                    removed automatically.
                   </p>
                 )}
                 <div className="mt-3">

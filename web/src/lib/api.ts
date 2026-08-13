@@ -2223,7 +2223,7 @@ export interface CopiedTaskDateRepairResult {
 export const dataManagementApi = {
   /** Export global data, selected events, or the full local database backup. */
   exportData: async (
-    scope: "full" | "global" | "event",
+    scope: "full" | "global" | "event" | "shareable",
     eventIds?: number[],
   ): Promise<Record<string, any>> => {
     const response = await apiFetch(`${API_BASE}/api/v1/data/export`, {
