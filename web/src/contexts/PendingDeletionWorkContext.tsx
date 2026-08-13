@@ -39,8 +39,9 @@ export function PendingDeletionWorkProvider({ children }: { children: React.Reac
     try {
       const events = await eventsApi.getAll();
       if (!Array.isArray(events)) return;
+      const configuredEvents = events.filter((event) => Boolean(event.mp_backend_url));
       const statuses = await Promise.all(
-        events.map(async (event) => {
+        configuredEvents.map(async (event) => {
           try {
             const status = await mpBackendApi.getDeletionWorkOrderStatus(event.id);
             return { eventId: event.id, configured: true, pending: status.pending };
