@@ -1,4 +1,6 @@
 import asyncio
+import json
+from copy import deepcopy
 from datetime import date, datetime
 
 import pytest
@@ -8,11 +10,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.v1.data_management import (
     CopyFromEventRequest,
+    ExportRequest,
     FactoryResetRequest,
     _import_event,
     _reject_accountability_identity_conflicts,
     copy_from_event,
+    export_data,
     factory_reset,
+    validate_import_payload,
 )
 from app.core import event_deletion
 from app.core.event_deletion import (
@@ -20,7 +25,16 @@ from app.core.event_deletion import (
     delete_event_scoped_data,
 )
 from app.db.database import Base
-from app.models import Event, Person, PersonUnavailability, Theme
+from app.models import (
+    Capability,
+    CapabilityType,
+    Event,
+    Person,
+    PersonUnavailability,
+    TaskTemplate,
+    TaskType,
+    Theme,
+)
 
 
 def _session(tmp_path):
@@ -232,6 +246,113 @@ def test_import_rejects_existing_accountability_identities_before_writes(tmp_pat
         assert not db.new
         assert db.query(Event).count() == 1
         assert db.query(Person).count() == 1
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_shareable_export_keeps_global_setup_and_redacts_event_identifiers(tmp_path):
+    engine, db = _session(tmp_path)
+    try:
+        event = Event(
+            name="Private Vienna Session",
+            location="Private Assembly Hall",
+            start_date=date(2026, 8, 1),
+            end_date=date(2026, 8, 2),
+        )
+        db.add(event)
+        db.flush()
+        db.add(Person(
+            event_id=event.id,
+            first_name="Alice",
+            last_name="Example",
+            email="alice@example.test",
+        ))
+
+        task_type = TaskType(
+            name="Session support",
+            description="Reusable operational work",
+            color="#334455",
+        )
+        capability_type = CapabilityType(
+            name="Technical skills",
+            description="Skills used by the planning team",
+            color="#556677",
+        )
+        db.add_all([task_type, capability_type])
+        db.flush()
+        capability = Capability(
+            machine_name="technical_support",
+            name="Technical support",
+            description=(
+                "Previously coordinated by Alice Example for Private Vienna Session. "
+                "Reference: https://private.example.test/runbook"
+            ),
+            capability_type_id=capability_type.id,
+        )
+        db.add(capability)
+        db.add(TaskTemplate(
+            machine_name="session_support",
+            name="Session support",
+            description="Contact alice@example.test before Private Assembly Hall opens.",
+            task_type_id=task_type.id,
+            fields=[{
+                "id": "notes",
+                "name": "Notes",
+                "type": "text",
+                "category": "arbitrary",
+                "required": False,
+                "locked": False,
+                "config": {},
+            }],
+        ))
+        db.commit()
+
+        result = asyncio.run(export_data(ExportRequest(scope="shareable"), db))
+        rendered = json.dumps(result).casefold()
+
+        assert result["version"] == 2
+        assert result["type"] == "app_settings"
+        assert result["profile"] == "shareable_setup"
+        assert "events" not in result
+        assert "alice" not in rendered
+        assert "private vienna session" not in rendered
+        assert "private assembly hall" not in rendered
+        assert "https://private.example.test" not in rendered
+        assert "created_at" not in rendered
+        assert result["shareable_setup_report"]["redactions"] >= 4
+        assert result["global_data"]["capabilities"][0]["machine_name"] == "technical_support"
+        assert validate_import_payload(deepcopy(result)).isValid is True
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_shareable_export_blocks_identity_in_machine_identifier(tmp_path):
+    engine, db = _session(tmp_path)
+    try:
+        event = _event("Private event")
+        db.add(event)
+        db.flush()
+        db.add(Person(event_id=event.id, first_name="Alice", last_name="Example"))
+        capability_type = CapabilityType(name="Skills", color="#123456")
+        db.add(capability_type)
+        db.flush()
+        db.add(Capability(
+            machine_name="alice_support",
+            name="Support",
+            capability_type_id=capability_type.id,
+        ))
+        db.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(export_data(ExportRequest(scope="shareable"), db))
+
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail["code"] == "SHAREABLE_SETUP_STRUCTURAL_IDENTIFIER"
+        assert exc_info.value.detail["paths"] == [
+            "global_data.capabilities[0].machine_name"
+        ]
     finally:
         db.close()
         engine.dispose()
