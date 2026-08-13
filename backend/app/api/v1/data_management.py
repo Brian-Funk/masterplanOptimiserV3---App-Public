@@ -3,7 +3,9 @@ Data Management API - export, import, copy-from-event, delete-event, factory-res
 """
 import json
 import logging
-from datetime import date, datetime, timedelta
+import re
+from copy import deepcopy
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -52,6 +54,40 @@ router = APIRouter()
 
 EXPORT_VERSION = 2
 
+SHAREABLE_PROFILE = "shareable_setup"
+SHAREABLE_EXCLUDED_CATEGORIES = [
+    "events",
+    "persons",
+    "groups",
+    "locations",
+    "tasks",
+    "assignments",
+    "optimisation_results",
+    "schedules",
+    "publishing_state",
+    "integration_settings",
+    "credentials_and_tokens",
+]
+SHAREABLE_METADATA_KEYS = {"created_at", "updated_at"}
+SHAREABLE_STRUCTURAL_KEYS = {"machine_name", "code"}
+_EMAIL_PATTERN = re.compile(
+    r"(?i)(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?![A-Z0-9._%+-])"
+)
+_URL_PATTERN = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>\"]+")
+_IGNORED_SENSITIVE_VALUES = {
+    "active",
+    "draft",
+    "finalised",
+    "optimised",
+    "published",
+    "public",
+    "private",
+    "person",
+    "group",
+    "event",
+    "task",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -93,6 +129,200 @@ def _serialize_global(db: Session) -> dict:
         "group_roles": _rows_to_list(db.query(GroupRole).all()),
         "assignment_sources": _rows_to_list(db.query(AssignmentSource).all()),
         "calendar_export_formats": _rows_to_list(db.query(CalendarExportFormat).all()),
+    }
+
+
+def _add_sensitive_value(values: set[str], value: Any) -> None:
+    """Collect bounded event-scoped strings that must not enter a shared setup."""
+    if isinstance(value, dict):
+        for nested in value.values():
+            _add_sensitive_value(values, nested)
+        return
+    if isinstance(value, (list, tuple, set)):
+        for nested in value:
+            _add_sensitive_value(values, nested)
+        return
+    if not isinstance(value, str):
+        return
+
+    candidate = value.strip()
+    if len(candidate) < 3 or candidate.casefold() in _IGNORED_SENSITIVE_VALUES:
+        return
+    if re.fullmatch(r"[\d\s:.,+\-/TZ]+", candidate):
+        return
+    values.add(candidate)
+
+
+def _shareable_sensitive_values(db: Session) -> list[str]:
+    """Build the deny corpus from data deliberately excluded from shared setups."""
+    values: set[str] = set()
+    for event in db.query(Event).all():
+        for value in (
+            event.name,
+            event.location,
+            event.evidence_id,
+            event.google_calendar_id,
+            event.mp_backend_url,
+            event.meta_data,
+        ):
+            _add_sensitive_value(values, value)
+
+        exported = _serialize_event(db, event)
+        for person in exported.get("persons", []):
+            first = str(person.get("first_name") or "").strip()
+            last = str(person.get("last_name") or "").strip()
+            for value in (
+                first,
+                last,
+                f"{first} {last}".strip(),
+                person.get("email"),
+                person.get("google_email"),
+                person.get("evidence_subject_id"),
+            ):
+                _add_sensitive_value(values, value)
+
+        sensitive_collections = {
+            "locations": ("name", "address", "details"),
+            "groups": ("name", "meta_data"),
+            "tasks": ("title", "description", "constraints", "additional"),
+            "task_instances": ("name", "field_values", "constraints", "additional"),
+            "audience_categories": None,
+            "schedule_views": None,
+            "session_element_types": None,
+            "audience_teams": None,
+            "session_elements": None,
+        }
+        for collection, keys in sensitive_collections.items():
+            for row in exported.get(collection, []):
+                if keys is None:
+                    for key, value in row.items():
+                        if key not in SHAREABLE_METADATA_KEYS and not key.endswith("_id"):
+                            _add_sensitive_value(values, value)
+                else:
+                    for key in keys:
+                        _add_sensitive_value(values, row.get(key))
+
+    return sorted(values, key=lambda item: (-len(item), item.casefold()))
+
+
+def _sensitive_pattern(value: str) -> re.Pattern[str]:
+    escaped = re.escape(value)
+    if value[0].isalnum() and value[-1].isalnum():
+        escaped = rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])"
+    return re.compile(escaped, re.IGNORECASE)
+
+
+def _contains_sensitive_text(value: str, sensitive_values: list[str]) -> bool:
+    if _EMAIL_PATTERN.search(value) or _URL_PATTERN.search(value):
+        return True
+    return any(_sensitive_pattern(item).search(value) for item in sensitive_values)
+
+
+def _redact_shareable_text(value: str, sensitive_values: list[str]) -> tuple[str, int]:
+    """Remove exact known identifiers without trying to infer deployment facts."""
+    redactions = 0
+    value, count = _EMAIL_PATTERN.subn("[removed email]", value)
+    redactions += count
+    value, count = _URL_PATTERN.subn("[removed link]", value)
+    redactions += count
+    for sensitive in sensitive_values:
+        value, count = _sensitive_pattern(sensitive).subn("[removed]", value)
+        redactions += count
+    return value, redactions
+
+
+def _sanitize_shareable_value(
+    value: Any,
+    sensitive_values: list[str],
+    *,
+    path: str,
+    key: Optional[str] = None,
+    blockers: list[str],
+    report: dict[str, int],
+) -> Any:
+    """Strip metadata and redact display strings while preserving references."""
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for child_key, child_value in value.items():
+            if child_key in SHAREABLE_METADATA_KEYS:
+                continue
+            child_path = f"{path}.{child_key}" if path else child_key
+            sanitized[child_key] = _sanitize_shareable_value(
+                child_value,
+                sensitive_values,
+                path=child_path,
+                key=child_key,
+                blockers=blockers,
+                report=report,
+            )
+        return sanitized
+    if isinstance(value, list):
+        return [
+            _sanitize_shareable_value(
+                item,
+                sensitive_values,
+                path=f"{path}[{index}]",
+                key=key,
+                blockers=blockers,
+                report=report,
+            )
+            for index, item in enumerate(value)
+        ]
+    if not isinstance(value, str):
+        return value
+
+    if key in SHAREABLE_STRUCTURAL_KEYS:
+        if _contains_sensitive_text(value, sensitive_values):
+            blockers.append(path)
+        return value
+
+    sanitized, count = _redact_shareable_text(value, sensitive_values)
+    report["redactions"] += count
+    return sanitized
+
+
+def _serialize_shareable_setup(db: Session) -> dict:
+    """Create the privacy-safe, import-compatible global configuration payload."""
+    sensitive_values = _shareable_sensitive_values(db)
+    blockers: list[str] = []
+    report = {"redactions": 0}
+    global_data = _sanitize_shareable_value(
+        deepcopy(_serialize_global(db)),
+        sensitive_values,
+        path="global_data",
+        blockers=blockers,
+        report=report,
+    )
+    if blockers:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SHAREABLE_SETUP_STRUCTURAL_IDENTIFIER",
+                "message": (
+                    "A reusable machine identifier contains event or participant data. "
+                    "Rename the listed configuration record before sharing this setup."
+                ),
+                "paths": sorted(set(blockers)),
+            },
+        )
+
+    return {
+        "version": EXPORT_VERSION,
+        "type": "app_settings",
+        "profile": SHAREABLE_PROFILE,
+        "global_data": global_data,
+        "shareable_setup_report": {
+            "included_counts": {
+                key: len(rows) if isinstance(rows, list) else 0
+                for key, rows in global_data.items()
+            },
+            "excluded_categories": SHAREABLE_EXCLUDED_CATEGORIES,
+            "redactions": report["redactions"],
+            "generated_at": datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        },
     }
 
 
@@ -170,7 +400,7 @@ def _serialize_event(db: Session, event: Event) -> dict:
 class ExportRequest(BaseModel):
     """Data export request selecting full, global-only, or event-only scope."""
 
-    scope: str = "full"  # "full" | "global" | "event"
+    scope: str = "full"  # "full" | "global" | "event" | "shareable"
     event_ids: Optional[List[int]] = None
 
 
@@ -182,6 +412,9 @@ async def export_data(req: ExportRequest, db: Session = Depends(get_db)):
     scope=global → global settings only          (type="app_settings")
     scope=event  → global settings + 1+ events   (type="project")
     """
+    if req.scope == "shareable":
+        return _serialize_shareable_setup(db)
+
     result: Dict[str, Any] = {"version": EXPORT_VERSION}
 
     # Global data is ALWAYS included  -  events are never exported without it
