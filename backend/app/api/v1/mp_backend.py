@@ -29,6 +29,7 @@ from app.core.operator_evidence import canonical_json, sign_document
 from app.models.task import Task, TaskType
 from app.models.task_template import TaskTemplate
 from app.models.assignment import Assignment
+from app.models.capability import Capability
 from app.models.location import Location
 from app.models.general_schedule import (
     AudienceCategory,
@@ -355,6 +356,56 @@ def _normalise_publish_dates(dates: Optional[List[str]]) -> Optional[set[str]]:
                 detail=f"Invalid publish date: {raw_date}",
             )
     return normalised
+
+
+def _published_capability_labels(
+    value: object,
+    capabilities_by_id: dict[int, Capability],
+    capabilities_by_machine_name: dict[str, Capability],
+) -> list[str]:
+    """Convert optimiser capability requirements to the bounded Server wire type."""
+
+    if value in (None, "", []):
+        return []
+    if not isinstance(value, list):
+        raise ValueError("A published capability field is not a list")
+    labels: list[str] = []
+    for item in value:
+        quantity = 1
+        capability: Capability | None = None
+        if isinstance(item, str):
+            label = item.strip()
+        elif isinstance(item, int) and not isinstance(item, bool):
+            capability = capabilities_by_id.get(item)
+            label = capability.name.strip() if capability else ""
+        elif isinstance(item, dict):
+            raw_quantity = item.get("quantity", item.get("amount", 1))
+            if (
+                not isinstance(raw_quantity, int)
+                or isinstance(raw_quantity, bool)
+                or raw_quantity < 1
+            ):
+                raise ValueError("A published capability has an invalid quantity")
+            quantity = raw_quantity
+            raw_id = item.get("id")
+            machine_name = item.get("machine_name")
+            if isinstance(raw_id, int) and not isinstance(raw_id, bool):
+                capability = capabilities_by_id.get(raw_id)
+            elif isinstance(machine_name, str):
+                capability = capabilities_by_machine_name.get(machine_name)
+            label = capability.name.strip() if capability else ""
+        else:
+            label = ""
+        if not label:
+            raise ValueError("A published capability could not be resolved")
+        if quantity > 1:
+            label = f"{label} ×{quantity}"
+        if len(label) > 128:
+            raise ValueError("A published capability label is too long")
+        labels.append(label)
+    if len(labels) > 200:
+        raise ValueError("A published capability field contains too many entries")
+    return labels
 
 
 async def _flush_deletion_outbox(db: Session) -> int:
@@ -1209,6 +1260,11 @@ async def publish_to_mp_backend(
         ]
     task_types = {tt.id: tt for tt in db.query(TaskType).all()}
     task_templates = {t.id: t for t in db.query(TaskTemplate).all()}
+    capabilities = db.query(Capability).all()
+    capabilities_by_id = {capability.id: capability for capability in capabilities}
+    capabilities_by_machine_name = {
+        capability.machine_name: capability for capability in capabilities
+    }
 
     assignments = db.query(Assignment).filter(Assignment.event_id == event_id).all()
     # Group assignments by task_id
@@ -1334,7 +1390,17 @@ async def publish_to_mp_backend(
                 elif field_type == "capabilities_list":
                     caps = raw_field_values.get(field_id, [])
                     if caps:
-                        field_values_resolved[field_id] = caps
+                        try:
+                            field_values_resolved[field_id] = _published_capability_labels(
+                                caps,
+                                capabilities_by_id,
+                                capabilities_by_machine_name,
+                            )
+                        except ValueError as exc:
+                            raise HTTPException(
+                                status_code=409,
+                                detail=f"Field {field_name}: {exc}",
+                            ) from exc
 
                 elif field_type == "location":
                     loc_val = raw_field_values.get(field_id)
@@ -1410,6 +1476,11 @@ async def publish_to_mp_backend(
                         # renders them as person fields
                         if fa_field_id in def_idx:
                             field_definitions_out[def_idx[fa_field_id]]["type"] = "persons_list"
+                            # A wire field has exactly one bounded type. Once
+                            # this capability/role field represents assigned
+                            # people, its optimiser requirement must not remain
+                            # in the scalar-value channel as well.
+                            field_values_resolved.pop(fa_field_id, None)
                         else:
                             field_assignments.pop(fa_field_id, None)
 
