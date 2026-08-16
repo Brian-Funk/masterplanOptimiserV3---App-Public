@@ -21,6 +21,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.v1 import mp_backend as mp_backend_api
 from app.api.v1 import operator_evidence as operator_evidence_api
 from app.api.v1.operator_evidence import (
+    EraseEventProcessorKeysRequest,
     GenerateProcessorKeyRequest,
     list_local_processor_keys,
     refresh_processor_key_status,
@@ -30,6 +31,7 @@ from app.core.operator_evidence import (
     DESKTOP_EVIDENCE_NAMESPACE,
     ProcessorEvidenceError,
     canonical_json,
+    erase_event_keys,
     generate_key,
     import_encrypted_key,
     registration_file,
@@ -156,6 +158,7 @@ def test_event_key_listing_excludes_key_from_previous_server_event(custody_db):
     db.commit()
 
     assert list_local_processor_keys(event.id, db) == []
+    assert [item["key_id"] for item in list_local_processor_keys(event.id, db, True)] == [row.key_id]
     assert db.query(type(row)).filter_by(key_id=row.key_id).one().state == "active"
 
 
@@ -291,6 +294,56 @@ def test_processor_rotation_is_identity_bound_and_retirement_blocks_new_signatur
     assert store.values, "retirement must not silently destroy historic verification custody"
     with pytest.raises(ProcessorEvidenceError, match="not active"):
         sign_document(db, identifier=previous.key_id, document=_challenge(previous), kind="registration")
+
+
+def test_event_key_erasure_removes_private_custody_and_stale_local_metadata(custody_db):
+    db, store, _engine = custody_db
+    event = Event(
+        name="Resettable event",
+        location="Test location",
+        start_date=datetime.now(timezone.utc).date(),
+        end_date=datetime.now(timezone.utc).date(),
+    )
+    other_event = Event(
+        name="Preserved event",
+        location="Test location",
+        start_date=datetime.now(timezone.utc).date(),
+        end_date=datetime.now(timezone.utc).date(),
+    )
+    db.add_all([event, other_event]); db.commit(); db.refresh(event); db.refresh(other_event)
+    current = generate_key(db, processor_id=PROCESSOR_ID, event_evidence_id=event.evidence_id)
+    stale = generate_key(db, processor_id="prc-stale00000001", event_evidence_id=str(uuid.uuid4()))
+    preserved = generate_key(db, processor_id="prc-preserved001", event_evidence_id=other_event.evidence_id)
+    current.local_event_id = event.id; current.state = "active"
+    stale.local_event_id = event.id; stale.state = "pending_root_approval"
+    preserved.local_event_id = other_event.id; preserved.state = "active"
+    db.commit()
+
+    # Stale identities stay visible for cleanup even when the event evidence
+    # identity has since changed.
+    assert {item["key_id"] for item in list_local_processor_keys(event.id, db, True)} == {
+        current.key_id,
+        stale.key_id,
+    }
+
+    assert erase_event_keys(db, local_event_id=event.id) == 2
+    assert db.query(type(current)).filter_by(local_event_id=event.id).count() == 0
+    assert db.query(type(current)).filter_by(local_event_id=other_event.id).one().key_id == preserved.key_id
+    assert list(store.values) == [f"masterplan:processor-key:{preserved.key_id}:private-ed25519-pkcs8"]
+
+    # A retry is harmless and a fresh identity can be created immediately.
+    assert erase_event_keys(db, local_event_id=event.id) == 0
+    fresh = generate_key(db, processor_id="prc-fresh00000001", event_evidence_id=event.evidence_id)
+    fresh.local_event_id = event.id; db.commit()
+    assert f"masterplan:processor-key:{fresh.key_id}:private-ed25519-pkcs8" in store.values
+
+
+def test_event_key_erasure_confirmation_is_exact():
+    assert EraseEventProcessorKeysRequest.model_validate({
+        "confirmation": "ERASE LOCAL PROCESSOR KEYS",
+    })
+    with pytest.raises(ValidationError):
+        EraseEventProcessorKeysRequest.model_validate({"confirmation": "erase"})
 
 
 def test_pages_encrypted_package_imports_without_private_database_material(custody_db):

@@ -446,4 +446,29 @@ def retire_key(db: Session, *, identifier: str) -> ProcessorEvidenceKey:
     return row
 
 
+def erase_event_keys(db: Session, *, local_event_id: int) -> int:
+    """Permanently remove every local processor key for one Desktop event.
+
+    Server-side public trust history is deliberately outside this local-only
+    operation. Credential-store entries are removed before their public SQLite
+    metadata so an interrupted attempt can be retried safely without claiming
+    that private material was erased when it was not.
+    """
+    if not isinstance(local_event_id, int) or local_event_id <= 0:
+        raise ProcessorEvidenceError("The local event identity is invalid.")
+    rows = db.query(ProcessorEvidenceKey).filter(
+        ProcessorEvidenceKey.local_event_id == local_event_id,
+    ).order_by(ProcessorEvidenceKey.id).all()
+    for row in rows:
+        delete_secret(private_key_account(row.key_id))
+    try:
+        for row in rows:
+            db.delete(row)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return len(rows)
+
+
 # Deliberately no controller-key generation or signing API exists in Desktop.
