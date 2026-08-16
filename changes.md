@@ -1,5 +1,29 @@
 # Changes
 
+## 3.9.1 — 16 August 2026
+
+### Added
+
+- Add optional people email addresses to Desktop and carry them into the
+  Server setup package so activation mail does not require manual account
+  editing after import.
+- Add a privacy-safe shareable setup export for reusing capabilities, task
+  templates and related planning structure without operational identities.
+
+### Changed
+
+- Replace active operational phone fields and template variables with email,
+  while keeping Google Calendar addresses separately scoped.
+- Allow an enrolled local processor identity to be deleted completely and
+  enrolled again for the same event when workstation state is stale.
+
+### Fixed
+
+- Publish capability and assigned-participant custom fields through their
+  bounded Server wire types instead of rejecting valid Masterplan data.
+- Correct shareable-export vocabulary detection, remove metadata timestamps
+  from shareable packages and avoid deletion polling for unlinked projects.
+
 ## 3.9.0 — 10 August 2026
 
 This release promotes the reviewed `3.8.2` security-qualification baseline and
