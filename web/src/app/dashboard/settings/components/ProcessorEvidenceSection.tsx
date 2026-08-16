@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Download, KeyRound, RefreshCw, ShieldCheck, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, KeyRound, RefreshCw, ShieldCheck, Trash2, Upload } from "lucide-react";
 
 import { Button, Card } from "@/components/ui";
 import { useEvent } from "@/contexts/EventContext";
@@ -20,6 +20,7 @@ export function ProcessorEvidenceSection() {
   const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
+  const [eraseConfirmed, setEraseConfirmed] = useState(false);
 
   const eventKeys = useMemo(() => keys, [keys]);
   const current = eventKeys.find((key) => key.state === "active")
@@ -28,7 +29,7 @@ export function ProcessorEvidenceSection() {
 
   const load = async () => {
     if (!selectedEventId) { setKeys([]); return; }
-    setKeys(await processorEvidenceApi.listKeys(selectedEventId));
+    setKeys(await processorEvidenceApi.listKeys(selectedEventId, true));
   };
   useEffect(() => {
     setKeys([]);
@@ -84,6 +85,16 @@ export function ProcessorEvidenceSection() {
     });
   }
 
+  async function eraseLocalKeys() {
+    if (!selectedEventId || !eraseConfirmed) return;
+    await run("erase", async () => {
+      await processorEvidenceApi.eraseEventKeys(selectedEventId);
+      setEraseConfirmed(false);
+      await load();
+      setMessage("Local processor keys erased. You can now generate or import a fresh event processor identity.");
+    });
+  }
+
   if (!selectedEventId) return <p className="text-sm text-foreground-muted">Select an event to configure its Desktop processor key.</p>;
 
   const status = current?.state === "active" ? "Ready" : current?.state === "pending_root_approval" ? "Waiting for root approval" : "Setup required";
@@ -117,5 +128,11 @@ export function ProcessorEvidenceSection() {
     </div>}
 
     {current && <details className="rounded-lg border border-border p-4 text-sm"><summary className="cursor-pointer font-medium">Technical key details</summary><dl className="mt-3 grid gap-2 break-all text-xs sm:grid-cols-[10rem_1fr]"><dt>Processor</dt><dd>{current.processor_id}</dd><dt>Key</dt><dd>{current.key_id}</dd><dt>Fingerprint</dt><dd>{current.public_key_sha256}</dd><dt>Event identity</dt><dd>{current.event_evidence_id}</dd><dt>Server instance</dt><dd>{current.server_instance_id || "Pending"}</dd></dl></details>}
+
+    {eventKeys.length > 0 && <Card><div className="space-y-4 border-l-4 border-l-red-500 p-5">
+      <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" /><div><h4 className="font-medium">Erase this Desktop&apos;s processor identity</h4><p className="mt-1 text-sm text-foreground-muted">Permanently removes every processor private key and local key record for this event from this operating-system account. It does not revoke the enrolled public key or rewrite evidence already held by the Server.</p></div></div>
+      <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={eraseConfirmed} onChange={(event) => setEraseConfirmed(event.target.checked)} className="mt-1" /><span>I understand that local signing stops immediately and that a fresh key will need Server root approval.</span></label>
+      <Button variant="danger" onClick={eraseLocalKeys} disabled={!!busy || !eraseConfirmed}><Trash2 className="mr-2 h-4 w-4" />{busy === "erase" ? "Erasing…" : "Erase local keys and start again"}</Button>
+    </div></Card>}
   </div>;
 }

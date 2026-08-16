@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.operator_evidence import (
     ProcessorEvidenceError,
+    erase_event_keys,
     generate_key,
     import_encrypted_key,
     registration_file,
@@ -58,6 +59,11 @@ class RetireProcessorKeyRequest(BaseModel):
     confirmation: Literal["REVOKED ON SERVER"]
 
 
+class EraseEventProcessorKeysRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmation: Literal["ERASE LOCAL PROCESSOR KEYS"]
+
+
 def _public(row: ProcessorEvidenceKey) -> dict[str, Any]:
     return {
         "key_id": row.key_id,
@@ -88,6 +94,7 @@ def _reject(exc: Exception) -> HTTPException:
 def list_local_processor_keys(
     event_id: int | None = None,
     db: Session = Depends(get_db),
+    include_stale: bool = False,
 ):
     """List processor public metadata without reading private key bytes."""
     query = db.query(ProcessorEvidenceKey)
@@ -97,8 +104,11 @@ def list_local_processor_keys(
             raise HTTPException(status_code=404, detail="The local event does not exist.")
         query = query.filter(
             ProcessorEvidenceKey.local_event_id == event.id,
-            ProcessorEvidenceKey.event_evidence_id == event.evidence_id,
         )
+        if not include_stale:
+            query = query.filter(
+                ProcessorEvidenceKey.event_evidence_id == event.evidence_id,
+            )
     return [_public(row) for row in query.order_by(ProcessorEvidenceKey.id).all()]
 
 
@@ -252,6 +262,29 @@ def retire_local_processor_key(
     del body
     try:
         return _public(retire_key(db, identifier=identifier))
+    except (ProcessorEvidenceError, RuntimeError, ValueError) as exc:
+        db.rollback()
+        raise _reject(exc) from exc
+
+
+@router.delete("/events/{event_id}/keys")
+def erase_local_event_processor_keys(
+    event_id: int,
+    body: EraseEventProcessorKeysRequest,
+    db: Session = Depends(get_db),
+):
+    """Erase private custody and local metadata without rewriting Server history."""
+    del body
+    try:
+        event = db.query(Event).filter(Event.id == event_id).first()
+        if event is None:
+            raise ProcessorEvidenceError("The local event does not exist.")
+        erased = erase_event_keys(db, local_event_id=event.id)
+        return {
+            "status": "erased",
+            "erased_key_count": erased,
+            "server_revocation_required": erased > 0,
+        }
     except (ProcessorEvidenceError, RuntimeError, ValueError) as exc:
         db.rollback()
         raise _reject(exc) from exc

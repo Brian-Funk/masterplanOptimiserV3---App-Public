@@ -2860,8 +2860,10 @@ export interface ProcessorEvidenceProof {
 /** Local-only processor-key generation and signing operations. */
 export const processorEvidenceApi = {
   /** List public metadata without reading or returning private key material. */
-  listKeys: async (eventId?: number): Promise<ProcessorEvidenceKey[]> => {
-    const query = eventId === undefined ? "" : `?event_id=${encodeURIComponent(eventId)}`;
+  listKeys: async (eventId?: number, includeStale = false): Promise<ProcessorEvidenceKey[]> => {
+    const query = eventId === undefined
+      ? ""
+      : `?event_id=${encodeURIComponent(eventId)}&include_stale=${includeStale ? "true" : "false"}`;
     const response = await apiFetch(`${API_BASE}/api/v1/processor-evidence/keys${query}`);
     if (!response.ok) throw new Error("Failed to load local processor keys");
     return response.json();
@@ -2926,6 +2928,23 @@ export const processorEvidenceApi = {
     if (!response.ok) {
       const error = await response.json().catch(() => null);
       throw new Error(error?.detail?.message || "Failed to refresh processor-key status");
+    }
+    return response.json();
+  },
+
+  /** Permanently erase every local processor key for an event and allow fresh enrolment. */
+  eraseEventKeys: async (eventId: number): Promise<{ status: string; erased_key_count: number }> => {
+    const response = await apiFetch(
+      `${API_BASE}/api/v1/processor-evidence/events/${eventId}/keys`,
+      {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: "ERASE LOCAL PROCESSOR KEYS" }),
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.detail?.message || "Failed to erase the local processor keys");
     }
     return response.json();
   },
