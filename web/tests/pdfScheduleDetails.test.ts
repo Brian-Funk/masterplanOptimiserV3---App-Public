@@ -76,4 +76,22 @@ describe("PDF schedule details", () => {
     );
     expect(formatPdfFieldValue({ secret: "not rendered" })).toBe("");
   });
+
+  it("does not crash the hidden renderer on malformed display-only values", () => {
+    const model = buildPdfDayTaskModel([
+      task({
+        name: { unexpected: "object" } as any,
+        task_type_name: ["unexpected"] as any,
+        location_name: 42 as any,
+        time: { value: "09:00" } as any,
+      }),
+    ]);
+
+    expect(model.details[0]).toMatchObject({
+      title: "Unnamed task",
+      taskType: "Operational task",
+      location: "42",
+      time: "Not scheduled",
+    });
+  });
 });

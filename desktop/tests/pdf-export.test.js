@@ -6,6 +6,7 @@ const test = require('node:test');
 
 const {
   buildPdfPrintOptions,
+  calculatePdfReadyTimeout,
   clearPdfExportSettings,
   describePdfExportDirectory,
   localTimestamp,
@@ -24,6 +25,18 @@ test('PDF printing uses A4 portrait with backgrounds and native page numbering',
   assert.equal(options.displayHeaderFooter, true);
   assert.match(options.footerTemplate, /pageNumber/);
   assert.match(options.footerTemplate, /totalPages/);
+});
+
+test('PDF readiness is workload-aware and remains bounded', () => {
+  assert.equal(calculatePdfReadyTimeout({ days: [{ tasks: [] }] }), 30000);
+  assert.equal(
+    calculatePdfReadyTimeout({ days: [{ tasks: Array.from({ length: 333 }) }] }),
+    146550,
+  );
+  assert.equal(
+    calculatePdfReadyTimeout({ days: [{ tasks: Array.from({ length: 2000 }) }] }),
+    180000,
+  );
 });
 
 function withTemporaryDirectories(callback) {

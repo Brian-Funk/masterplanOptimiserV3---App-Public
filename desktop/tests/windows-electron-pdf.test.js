@@ -51,9 +51,9 @@ function waitForExit(child, logs, timeoutMs = 60000) {
   });
 }
 
-test('Electron renders a real portrait light schedule PDF with dense continuation details', {
+test('Electron renders a production-sized portrait schedule PDF with dense continuation details', {
   skip: process.platform !== 'win32' || process.env.MP_RUN_ELECTRON_PDF_INTEGRATION !== '1',
-  timeout: 120000,
+  timeout: 300000,
 }, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-opt-electron-pdf-'));
   const outputDirectory = path.join(root, 'selected-output');
@@ -66,29 +66,56 @@ test('Electron renders a real portrait light schedule PDF with dense continuatio
   const fixturePath = path.join(root, 'pdf-renderer-electron-fixture.js');
   const fixtureConfigPath = path.join(root, 'fixture-config.json');
   fs.copyFileSync(path.join(__dirname, 'pdf-renderer-electron-fixture.js'), fixturePath);
-  const denseTasks = Array.from({ length: 7 }, (_, index) => ({
-    id: index + 1,
-    name: index === 0
-      ? 'Build the complete primary stage and verify every operational handover point'
-      : `Operational handover task ${index + 1} with a complete readable title`,
-    date: '2032-04-21',
-    start_end_time: {
-      start: `${String(8 + index).padStart(2, '0')}:00`,
-      end: `${String(9 + index).padStart(2, '0')}:00`,
-    },
-    task_type_name: 'Stage operations',
-    task_type_color: index % 2 === 0 ? '#2563eb' : '#7c3aed',
-    location_name: `Operational location ${index + 1} - north loading entrance`,
-    resource_info: `Stage leads: Alex Example, Sam Example | Safety: Jo Example ${index + 1}`,
-    fields: {
-      instructions: `Bring the complete equipment manifest for task ${index + 1} and retain the signed handover sheet.`,
-      reference: { label: `Run sheet ${index + 1}`, url: `https://example.invalid/run-sheet-${index + 1}` },
-    },
-    field_definitions: [
-      { id: 'instructions', name: 'Operational instructions', type: 'text' },
-      { id: 'reference', name: 'Reference', type: 'link' },
-    ],
-    _extra_card_fields: [{ label: 'Radio channel', value: `Operations ${index + 1}` }],
+  const dates = [
+    '2032-04-21',
+    '2032-04-22',
+    '2032-04-23',
+    '2032-04-24',
+    '2032-04-25',
+    '2032-04-26',
+    '2032-04-27',
+  ];
+  const dayLabels = [
+    'Wednesday, 21 April 2032',
+    'Thursday, 22 April 2032',
+    'Friday, 23 April 2032',
+    'Saturday, 24 April 2032',
+    'Sunday, 25 April 2032',
+    'Monday, 26 April 2032',
+    'Tuesday, 27 April 2032',
+  ];
+  const taskCounts = [18, 48, 57, 50, 60, 65, 35];
+  let nextTaskId = 1;
+  const days = dates.map((date, dayIndex) => ({
+    date,
+    dayLabel: dayLabels[dayIndex],
+    tasks: Array.from({ length: taskCounts[dayIndex] }, (_, taskIndex) => {
+      const id = nextTaskId++;
+      const hour = 8 + (taskIndex % 10);
+      return {
+        id,
+        name: id === 1
+          ? 'Build the complete primary stage and verify every operational handover point'
+          : id === 333
+            ? 'Close the final operations desk'
+            : `Operational handover task ${id} with a complete readable title`,
+        date,
+        start_end_time: {
+          start: `${String(hour).padStart(2, '0')}:00`,
+          end: `${String(hour + 1).padStart(2, '0')}:00`,
+        },
+        task_type_name: 'Stage operations',
+        task_type_color: id % 2 === 0 ? '#2563eb' : '#7c3aed',
+        location_name: `Operational location ${(taskIndex % 12) + 1}`,
+        resource_info: `Stage leads: Alex Example, Sam Example | Team ${id}`,
+        fields: {
+          instructions: `Bring the equipment manifest for task ${id} and retain the signed handover sheet.`,
+        },
+        field_definitions: [
+          { id: 'instructions', name: 'Operational instructions', type: 'text' },
+        ],
+      };
+    }),
   }));
   fs.writeFileSync(payloadPath, JSON.stringify({
     title: 'Field Plan',
@@ -96,14 +123,11 @@ test('Electron renders a real portrait light schedule PDF with dense continuatio
     eventName: 'Synthetic Assembly',
     eventLocation: 'Test Hall',
     eventStartDate: '2032-04-21',
-    eventEndDate: '2032-04-22',
+    eventEndDate: '2032-04-27',
     generatedAt: '2032-04-20T12:00:00.000Z',
     scheduleDayRange: { startHour: 8, endHour: 18 },
     scheduleDayBoundary: { offsetHour: 0 },
-    days: [
-      { date: '2032-04-21', dayLabel: 'Wednesday, 21 April 2032', tasks: denseTasks },
-      { date: '2032-04-22', dayLabel: 'Thursday, 22 April 2032', tasks: [{ id: 2, name: 'Open doors', date: '2032-04-22', start_end_time: { start: '10:00', end: '11:00' }, task_type_color: '#7c3aed', location_name: 'Entrance', resource_info: 'Sam Example' }] },
-    ],
+    days,
   }));
 
   const port = await reservePort();
@@ -152,7 +176,7 @@ test('Electron renders a real portrait light schedule PDF with dense continuatio
     stdio: 'ignore',
   });
   try {
-    await waitForExit(fixture, []);
+    await waitForExit(fixture, [], 240000);
   } catch (error) {
     const debugPath = `${receiptPath}.log`;
     if (fs.existsSync(debugPath)) {
@@ -167,18 +191,18 @@ test('Electron renders a real portrait light schedule PDF with dense continuatio
   assert.ok(receipt.pageCount >= 3, 'dense details must continue onto another portrait page');
   assert.match(receipt.bodyText, /Field Plan/);
   assert.match(receipt.bodyText, /Build the complete primary stage and verify every operational handover point/);
-  assert.match(receipt.bodyText, /Open doors/);
+  assert.match(receipt.bodyText, /Close the final operations desk/);
   assert.match(receipt.bodyText, /T01/);
   assert.match(receipt.bodyText, /Stage leads: Alex Example, Sam Example/);
   assert.match(receipt.bodyText, /Operational instructions/i);
-  assert.match(receipt.bodyText, /Bring the complete equipment manifest/);
-  assert.match(receipt.bodyText, /Operational handover task 7 with a complete readable title/);
+  assert.match(receipt.bodyText, /Bring the equipment manifest/);
+  assert.match(receipt.bodyText, /Operational handover task 332 with a complete readable title/);
   assert.doesNotMatch(receipt.visualState.rootClassName, /dark/);
   assert.equal(receipt.visualState.background, 'rgb(255, 255, 255)');
   assert.match(receipt.visualState.fontFamily, /Source Sans 3/);
   assert.equal(receipt.visualState.logoReady, true);
   assert.equal(receipt.visualState.logoHasColour, true);
-  assert.equal(receipt.visualState.detailRows, denseTasks.length + 1);
+  assert.equal(receipt.visualState.detailRows, 333);
   assert.ok(receipt.mediaBox, 'PDF MediaBox is required');
   assert.ok(receipt.mediaBox.height > receipt.mediaBox.width, 'PDF must be portrait');
   assert.equal(path.dirname(path.resolve(receipt.outputPath)), path.resolve(outputDirectory));

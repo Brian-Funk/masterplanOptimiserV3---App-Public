@@ -12,7 +12,10 @@ const {
   preloadPath,
   pdfExportModulePath,
 } = config;
-const { buildPdfPrintOptions } = require(pdfExportModulePath);
+const {
+  buildPdfPrintOptions,
+  calculatePdfReadyTimeout,
+} = require(pdfExportModulePath);
 const debugPath = `${receiptPath}.log`;
 const debug = (message) => fs.appendFileSync(debugPath, `${new Date().toISOString()} ${message}\n`);
 debug(`fixture started: ${JSON.stringify({ frontendUrl, userDataPath, preloadPath })}`);
@@ -65,7 +68,7 @@ app.whenReady().then(async () => {
   });
   const timeout = setTimeout(() => {
     throw new Error('Timed out waiting for the PDF renderer');
-  }, 45000);
+  }, calculatePdfReadyTimeout(payload) + 15000);
   await window.loadURL(frontendUrl);
   await window.webContents.executeJavaScript("localStorage.setItem('dark-mode', 'dark')");
   await window.loadURL(`${frontendUrl}/pdf-export?job=${jobId}`);
@@ -108,6 +111,7 @@ app.whenReady().then(async () => {
   fs.writeFileSync(outputPath, pdf, { flag: 'wx' });
   debug(`pdf written: ${pdf.length}`);
   const source = pdf.toString('latin1');
+  debug('pdf source decoded');
   const pageCount = (source.match(/\/Type\s*\/Page(?!s)/g) || []).length;
   const mediaBoxMatch = source.match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/);
   const mediaBox = mediaBoxMatch
@@ -117,8 +121,8 @@ app.whenReady().then(async () => {
     receiptPath,
     JSON.stringify({ bodyText, visualState, pageCount, mediaBox, size: pdf.length, outputPath }, null, 2),
   );
-  window.destroy();
-  app.quit();
+  debug('receipt written');
+  app.exit(0);
 }).catch((error) => {
   console.error(error);
   app.exit(1);
