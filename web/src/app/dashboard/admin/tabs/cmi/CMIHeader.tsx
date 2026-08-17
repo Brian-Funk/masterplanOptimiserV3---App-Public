@@ -32,6 +32,8 @@ interface CMIHeaderProps {
   getDayInfo: (date: string) => DayInfo | null;
   onRefresh: () => void;
   onOptimise: () => void;
+  onOptimiseAllDays: () => void;
+  allDaysRunning: boolean;
   onPreviousDay: () => void;
   onNextDay: () => void;
   onInfeasibleTaskClick?: (taskId: number) => void;
@@ -47,6 +49,8 @@ export function CMIHeader({
   getDayInfo,
   onRefresh,
   onOptimise,
+  onOptimiseAllDays,
+  allDaysRunning,
   onPreviousDay,
   onNextDay,
   onInfeasibleTaskClick,
@@ -318,7 +322,7 @@ export function CMIHeader({
           {
             <Tooltip
               content={
-                optimizationState.isOptimizing
+                optimizationState.isOptimizing || allDaysRunning
                   ? "Another optimisation is already running"
                   : flowCheckStatus !== "valid"
                     ? "Fix flow check errors before optimising"
@@ -329,7 +333,9 @@ export function CMIHeader({
               <button
                 onClick={onOptimise}
                 disabled={
-                  flowCheckStatus !== "valid" || optimizationState.isOptimizing
+                  flowCheckStatus !== "valid" ||
+                  optimizationState.isOptimizing ||
+                  allDaysRunning
                 }
                 className="px-3 py-1 text-xs font-medium text-white bg-purple-600 rounded hover:bg-purple-700 disabled:bg-surface-inset disabled:cursor-not-allowed transition-colors flex items-center gap-1"
               >
@@ -350,6 +356,24 @@ export function CMIHeader({
               </button>
             </Tooltip>
           }
+
+          <Tooltip
+            content={
+              optimizationState.isOptimizing || allDaysRunning
+                ? "Another optimisation is already running"
+                : "Check and optimise each event day in order"
+            }
+            side="bottom"
+          >
+            <button
+              type="button"
+              onClick={onOptimiseAllDays}
+              disabled={optimizationState.isOptimizing || allDaysRunning}
+              className="px-3 py-1 text-xs font-medium text-purple-700 bg-purple-100 rounded hover:bg-purple-200 disabled:bg-surface-inset disabled:text-foreground-muted disabled:cursor-not-allowed transition-colors"
+            >
+              Optimise all days
+            </button>
+          </Tooltip>
 
           {/* Date navigation */}
           {(() => {
