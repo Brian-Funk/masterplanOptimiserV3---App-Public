@@ -34,6 +34,18 @@ const GROUP_ORDER = [
   "Calendar Export Editor",
 ];
 
+const FIXED_SHORTCUT_HINTS = [
+  {
+    id: "cmi.optimiseAllDaysModifier",
+    scope: "cmi",
+    group: "CMI",
+    label: "Optimise all days",
+    description:
+      "Hold Shift while clicking Optimise day to check and optimise every event day in order.",
+    gesture: "Shift + click",
+  },
+] as const;
+
 function ShortcutPill({
   value,
   conflict = false,
@@ -167,8 +179,8 @@ export function ShortcutSettingsSection() {
                 Keyboard Shortcuts
               </h2>
               <p className="text-sm text-foreground-secondary">
-                Customise app-wide shortcuts. Conflicts are shown, but saving is
-                still allowed.
+                Customise app-wide shortcuts. Fixed interaction shortcuts are
+                also shown for reference.
               </p>
             </div>
           </div>
@@ -177,7 +189,7 @@ export function ShortcutSettingsSection() {
           <div className="rounded-lg border border-bordercl bg-surface px-3 py-2">
             <div className="text-xs text-foreground-tertiary">Total</div>
             <div className="text-lg font-semibold text-foreground">
-              {SHORTCUT_DEFINITIONS.length}
+              {SHORTCUT_DEFINITIONS.length + FIXED_SHORTCUT_HINTS.length}
             </div>
           </div>
           <div className="rounded-lg border border-bordercl bg-surface px-3 py-2">
@@ -363,6 +375,40 @@ export function ShortcutSettingsSection() {
                   </div>
                 );
               })}
+              {FIXED_SHORTCUT_HINTS.filter(
+                (hint) => hint.group === group,
+              ).map((hint) => (
+                <div
+                  key={hint.id}
+                  data-testid={`shortcut-row-${hint.id}`}
+                  className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_14rem_minmax(10rem,auto)] lg:items-center"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="font-medium text-foreground">
+                        {hint.label}
+                      </h4>
+                      <span className="rounded-full bg-surface-hover px-2 py-0.5 text-xs text-foreground-tertiary">
+                        {hint.scope}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-foreground-secondary">
+                      {hint.description}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-foreground-tertiary">
+                      Gesture
+                    </div>
+                    <ShortcutPill value={hint.gesture} />
+                  </div>
+                  <div className="flex lg:justify-end">
+                    <span className="rounded-full border border-bordercl bg-surface-alt px-3 py-1 text-xs font-medium text-foreground-secondary">
+                      Built in
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </Card>
         ))}

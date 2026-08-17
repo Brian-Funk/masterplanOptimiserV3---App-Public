@@ -58,6 +58,26 @@ export function CMIHeader({
   const { optimizationState, progressData, setShowProgressModal } =
     useOptimization();
   const [showBottlenecks, setShowBottlenecks] = useState(false);
+  const [shiftPressed, setShiftPressed] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Shift") setShiftPressed(true);
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Shift") setShiftPressed(false);
+    };
+    const handleBlur = () => setShiftPressed(false);
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
 
   useEffect(() => {
     if (flowCheckStatus === "invalid") setShowBottlenecks(true);
@@ -318,60 +338,54 @@ export function CMIHeader({
             </button>
           </Tooltip>
 
-          {/* Optimize button */}
-          {
-            <Tooltip
-              content={
-                optimizationState.isOptimizing || allDaysRunning
-                  ? "Another optimisation is already running"
-                  : flowCheckStatus !== "valid"
-                    ? "Fix flow check errors before optimising"
-                    : "Run optimisation for this day"
-              }
-              side="bottom"
-            >
-              <button
-                onClick={onOptimise}
-                disabled={
-                  flowCheckStatus !== "valid" ||
-                  optimizationState.isOptimizing ||
-                  allDaysRunning
-                }
-                className="px-3 py-1 text-xs font-medium text-white bg-purple-600 rounded hover:bg-purple-700 disabled:bg-surface-inset disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-              >
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 10V3L4 14h7v7l9-11h-7z"
-                  />
-                </svg>
-                Optimise
-              </button>
-            </Tooltip>
-          }
-
+          {/* Hold Shift to change the same control from one day to all days. */}
           <Tooltip
             content={
               optimizationState.isOptimizing || allDaysRunning
                 ? "Another optimisation is already running"
-                : "Check and optimise each event day in order"
+                : shiftPressed
+                  ? "Check and optimise each event day in order"
+                  : flowCheckStatus !== "valid"
+                    ? "Fix flow check errors before optimising this day. Hold Shift to optimise all days."
+                    : "Run optimisation for this day. Hold Shift to optimise all days."
             }
             side="bottom"
           >
             <button
               type="button"
-              onClick={onOptimiseAllDays}
-              disabled={optimizationState.isOptimizing || allDaysRunning}
-              className="px-3 py-1 text-xs font-medium text-purple-700 bg-purple-100 rounded hover:bg-purple-200 disabled:bg-surface-inset disabled:text-foreground-muted disabled:cursor-not-allowed transition-colors"
+              onClick={(event) => {
+                if (event.shiftKey || shiftPressed) {
+                  onOptimiseAllDays();
+                } else {
+                  onOptimise();
+                }
+              }}
+              disabled={
+                optimizationState.isOptimizing ||
+                allDaysRunning ||
+                (!shiftPressed && flowCheckStatus !== "valid")
+              }
+              className={`flex w-40 items-center justify-center gap-1 rounded px-3 py-1 text-xs font-medium text-white transition-colors disabled:bg-surface-inset disabled:cursor-not-allowed ${
+                shiftPressed
+                  ? "bg-indigo-700 hover:bg-indigo-800"
+                  : "bg-purple-600 hover:bg-purple-700"
+              }`}
             >
-              Optimise all days
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
+              </svg>
+              {shiftPressed ? "Optimise all days" : "Optimise day"}
             </button>
           </Tooltip>
 
