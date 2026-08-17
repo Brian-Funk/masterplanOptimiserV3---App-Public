@@ -12,6 +12,7 @@ import { optimizationApi } from "@/lib/optimizationApi";
 import { useTaskInstances } from "@/contexts/TaskInstanceContext";
 import { useToast } from "@/contexts/ToastContext";
 import type { ProgressData } from "@/types/optimization";
+import type { OptimizationStatus } from "@/types/optimization";
 import SolverProgressModal from "@/components/SolverProgressModal";
 
 /** Current optimisation job lifecycle state. */
@@ -22,10 +23,22 @@ export interface OptimizationState {
   isOptimizing: boolean;
 }
 
+export interface OptimizationCompletion {
+  status: Extract<
+    OptimizationStatus,
+    "completed" | "infeasible" | "undetermined" | "failed"
+  >;
+  message?: string;
+}
+
 /** Context value for optimisation progress and job controls. */
 export interface OptimizationContextType {
   optimizationState: OptimizationState;
-  startOptimization: (eventId: number, date: string, jobId: number) => void;
+  startOptimization: (
+    eventId: number,
+    date: string,
+    jobId: number,
+  ) => Promise<OptimizationCompletion>;
   stopOptimization: () => void;
   progressData: ProgressData | null;
   elapsedSeconds: number | undefined;
@@ -62,6 +75,9 @@ export function OptimizationProvider({
   instancesRef.current = instances;
   bulkSetOptimisedRef.current = bulkSetOptimised;
   const hasProcessedRef = useRef<number | null>(null);
+  const completionResolversRef = useRef(
+    new Map<number, (completion: OptimizationCompletion) => void>(),
+  );
   const [progressData, setProgressData] = useState<ProgressData | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number | undefined>(
     undefined,
@@ -74,6 +90,17 @@ export function OptimizationProvider({
       runningEventId: null,
       isOptimizing: false,
     },
+  );
+
+  const settleOptimization = useCallback(
+    (jobId: number, completion: OptimizationCompletion) => {
+      const resolve = completionResolversRef.current.get(jobId);
+      completionResolversRef.current.delete(jobId);
+      if (resolve) {
+        window.setTimeout(() => resolve(completion), 0);
+      }
+    },
+    [],
   );
 
   // Poll for status updates when optimisation is running
@@ -117,6 +144,7 @@ export function OptimizationProvider({
             return;
           }
           hasProcessedRef.current = optimizationState.runningJobId;
+          let completion: OptimizationCompletion = { status: "completed" };
 
           // Final progress update: use stored progress_data (has solver_status)
           if (status.progress_data) {
@@ -258,6 +286,10 @@ export function OptimizationProvider({
                 "Optimisation completed but failed to sync results",
                 "error",
               );
+              completion = {
+                status: "failed",
+                message: "The optimiser completed, but its result could not be saved.",
+              };
             }
           } else {
             console.warn(
@@ -272,6 +304,7 @@ export function OptimizationProvider({
             runningEventId: null,
             isOptimizing: false,
           });
+          settleOptimization(optimizationState.runningJobId!, completion);
         }
 
         // Infeasibility is a valid solver conclusion, not an operational
@@ -301,6 +334,10 @@ export function OptimizationProvider({
             runningEventId: null,
             isOptimizing: false,
           });
+          settleOptimization(optimizationState.runningJobId!, {
+            status: status.status,
+            message: summary,
+          });
         }
 
         // If job failed, stop tracking
@@ -319,6 +356,10 @@ export function OptimizationProvider({
             runningEventId: null,
             isOptimizing: false,
           });
+          settleOptimization(optimizationState.runningJobId!, {
+            status: "failed",
+            message: status.error_message || "Unknown error",
+          });
         }
       } catch (error) {
         console.error("Error polling optimisation status:", error);
@@ -330,20 +371,34 @@ export function OptimizationProvider({
     const interval = setInterval(pollStatus, 2000);
 
     return () => clearInterval(interval);
-  }, [optimizationState.isOptimizing, optimizationState.runningJobId]);
+  }, [optimizationState.isOptimizing, optimizationState.runningJobId, settleOptimization]);
 
-  const startOptimization = (eventId: number, date: string, jobId: number) => {
+  const startOptimization = (
+    eventId: number,
+    date: string,
+    jobId: number,
+  ): Promise<OptimizationCompletion> => {
     setProgressData(null);
     setElapsedSeconds(undefined);
+    const completion = new Promise<OptimizationCompletion>((resolve) => {
+      completionResolversRef.current.set(jobId, resolve);
+    });
     setOptimizationState({
       runningJobId: jobId,
       runningDate: date,
       runningEventId: eventId,
       isOptimizing: true,
     });
+    return completion;
   };
 
   const stopOptimization = () => {
+    if (optimizationState.runningJobId) {
+      settleOptimization(optimizationState.runningJobId, {
+        status: "failed",
+        message: "Optimisation tracking was stopped.",
+      });
+    }
     setProgressData(null);
     setElapsedSeconds(undefined);
     setShowProgressModal(false);

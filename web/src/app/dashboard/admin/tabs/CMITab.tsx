@@ -30,6 +30,7 @@ import {
 import Calendar, { CalendarBackgroundBlock, CalendarTask } from "@/components/Calendar";
 import TaskEditModal from "@/components/TaskEditModal";
 import { CMIHeader } from "./cmi/CMIHeader";
+import { OptimiseAllDaysModal } from "./cmi/OptimiseAllDaysModal";
 import { SelectedTasksPanel } from "./cmi/SelectedTasksPanel";
 import { ExportSelectedTasksModal } from "./cmi/ExportSelectedTasksModal";
 import {
@@ -64,6 +65,12 @@ import {
   toWorkingDayMinutes,
 } from "@/lib/workingDayBoundary";
 import { buildTaskExportPayloads } from "@/lib/taskExport";
+import {
+  buildAllDaysSteps,
+  runAllDaysSequence,
+  summariseAllDaysSteps,
+  type AllDaysStep,
+} from "@/lib/allDaysOptimization";
 
 // Sort fields by priority: Time -> Location -> Capabilities -> Persons -> Additional info
 function sortFields(fields: any[]): any[] {
@@ -135,6 +142,9 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
   );
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExportingTasks, setIsExportingTasks] = useState(false);
+  const [showOptimiseAllDays, setShowOptimiseAllDays] = useState(false);
+  const [optimiseAllRunning, setOptimiseAllRunning] = useState(false);
+  const [allDaysSteps, setAllDaysSteps] = useState<AllDaysStep[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -241,6 +251,25 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         scheduleDayBoundary,
       ) === selectedDate,
     [getInstanceStartClock, scheduleDayBoundary, selectedDate],
+  );
+
+  const getEventTasksForWorkingDay = useCallback(
+    (date: string) =>
+      contextInstances.filter(
+        (instance: any) =>
+          instance.event_id === selectedEvent?.id &&
+          getWorkingDayForDateTime(
+            instance.date,
+            getInstanceStartClock(instance),
+            scheduleDayBoundary,
+          ) === date,
+      ),
+    [
+      contextInstances,
+      getInstanceStartClock,
+      scheduleDayBoundary,
+      selectedEvent?.id,
+    ],
   );
 
   const selectedTaskInstances = useMemo(
@@ -1436,6 +1465,278 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     }
   };
 
+  const applyFlowResultToSelectedDay = useCallback(
+    (date: string, result: Awaited<ReturnType<typeof performFlowCheck>>) => {
+      if (date !== selectedDate) return;
+      setFlowCheckStatus(result.status);
+      setFlowCheckErrors(result.errors);
+      setFlowCheckDiagnostics(result.diagnostics);
+      setInfeasibleTaskIds(result.infeasibleTaskIds);
+      setInfeasibleTaskErrors(result.infeasibleTaskErrors);
+    },
+    [selectedDate],
+  );
+
+  const runFullFlowCheckForDate = useCallback(
+    async (date: string) => {
+      const result = await performFlowCheck({
+        selectedEvent,
+        selectedDate: date,
+        templates,
+        taskTypes,
+        persons,
+        locations,
+        taskInstances: instancesRef.current,
+        scheduleDayBoundary,
+        silent: true,
+        skipFloating: false,
+      });
+      applyFlowResultToSelectedDay(date, result);
+      return result;
+    },
+    [
+      applyFlowResultToSelectedDay,
+      locations,
+      persons,
+      scheduleDayBoundary,
+      selectedEvent,
+      taskTypes,
+      templates,
+    ],
+  );
+
+  const assertPeopleHaveHomeLocations = useCallback(() => {
+    const missing = persons.filter((person) => !person.home_location_id);
+    if (missing.length === 0) return;
+    const names = missing
+      .map((person) => `${person.first_name} ${person.last_name}`.trim())
+      .join(", ");
+    throw new Error(
+      `The following people do not have a home location assigned: ${names}. Assign home locations before optimising.`,
+    );
+  }, [persons]);
+
+  const runOptimisationForDate = useCallback(
+    async (date: string) => {
+      assertPeopleHaveHomeLocations();
+      const eventTasks = getEventTasksForWorkingDay(date);
+      if (eventTasks.length === 0) {
+        throw new Error("No tasks were found for this day.");
+      }
+
+      const tasksWithLocation = eventTasks.map((task: any) => {
+        const template = templates.find(
+          (candidate: any) => candidate.id === task.template_id,
+        );
+        const taskType = taskTypes.find(
+          (candidate) => candidate.id === task.task_type_id,
+        );
+        let locationId = null;
+        const isFloating = template?.is_floating || false;
+        const isTransfer = template?.is_transfer || false;
+
+        if (template?.fields && task.field_values) {
+          const locationField = template.fields.find(
+            (field: any) =>
+              field.type === "location" || field.type === "start_location",
+          );
+          if (locationField) {
+            const value = task.field_values[locationField.id];
+            locationId =
+              value === null
+                ? null
+                : typeof value === "number"
+                  ? value
+                  : value?.value;
+          }
+        }
+
+        return {
+          ...task,
+          id: Math.floor(task.id),
+          location_id: locationId,
+          is_floating: isFloating,
+          is_transfer: isTransfer,
+          counts_towards_work_time:
+            taskType?.counts_towards_work_time !== false,
+        };
+      });
+
+      const validTasks = tasksWithLocation
+        .filter((task: any) => task.location_id !== undefined)
+        .map((task: any) =>
+          lineariseTaskTimesForWorkingDay(task, date, scheduleDayBoundary),
+        );
+      if (validTasks.length === 0) {
+        throw new Error(
+          "No tasks with valid locations were found. Check the task locations before optimising.",
+        );
+      }
+
+      const currentCapabilities = await capabilitiesApi.getAll(
+        selectedEvent.id,
+      );
+      const fatigueScores: Record<number, number> = {};
+      taskTypes.forEach((taskType) => {
+        fatigueScores[taskType.id] = taskType.fatigue_score ?? 1.0;
+      });
+
+      let personsWithFatigue = persons;
+      try {
+        const previous = new Date(`${date}T00:00:00`);
+        previous.setDate(previous.getDate() - 1);
+        const previousDate = previous.toISOString().split("T")[0];
+        const jobList = await optimizationApi.getJobsForEvent(selectedEvent.id);
+        const previousJob = jobList.jobs.find(
+          (job) => job.date === previousDate && job.status === "completed",
+        );
+        if (previousJob) {
+          const previousStatus = await optimizationApi.getJobStatus(
+            previousJob.id,
+            selectedEvent.id,
+          );
+          const perPerson =
+            previousStatus.result_data?.fatigue_stats?.per_person;
+          if (perPerson && typeof perPerson === "object") {
+            personsWithFatigue = persons.map((person: any) => ({
+              ...person,
+              initial_fatigue: perPerson[String(person.id)] ?? 0,
+            }));
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `[Optimize] Could not load fatigue carried into ${date}; using zero.`,
+          error,
+        );
+      }
+
+      const result = await optimizationApi.startOptimization({
+        event_id: selectedEvent.id,
+        date,
+        working_day_boundary_offset_hour: scheduleDayBoundary.offsetHour,
+        test_mode: false,
+        tasks: validTasks,
+        persons: personsWithFatigue,
+        locations,
+        capabilities: currentCapabilities,
+        fatigue_scores: fatigueScores,
+      });
+
+      return startOptimization(selectedEvent.id, date, result.job_id);
+    },
+    [
+      assertPeopleHaveHomeLocations,
+      getEventTasksForWorkingDay,
+      locations,
+      persons,
+      scheduleDayBoundary,
+      selectedEvent,
+      startOptimization,
+      taskTypes,
+      templates,
+    ],
+  );
+
+  const handleOptimiseAllDays = useCallback(async () => {
+    if (optimiseAllRunning || optimizationState.isOptimizing) return;
+    try {
+      assertPeopleHaveHomeLocations();
+    } catch (error) {
+      alert(
+        `Cannot optimise all days:\n\n${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+      );
+      return;
+    }
+
+    const initialSteps = buildAllDaysSteps(
+      selectedEvent.start_date,
+      selectedEvent.end_date,
+      getDayLabel,
+    );
+    if (initialSteps.length === 0) {
+      addToast("The event has no valid days to optimise.", "error");
+      return;
+    }
+
+    setAllDaysSteps(initialSteps);
+    setShowOptimiseAllDays(true);
+    setOptimiseAllRunning(true);
+    try {
+      const completed = await runAllDaysSequence({
+        initialSteps,
+        onChange: setAllDaysSteps,
+        checkFlow: async (date) => {
+          if (getEventTasksForWorkingDay(date).length === 0) {
+            return { status: "skipped", detail: "No tasks for this day." };
+          }
+          try {
+            const result = await runFullFlowCheckForDate(date);
+            if (result.status !== "valid") {
+              return {
+                status: "failed",
+                detail: `${result.errors.length} flow issue${result.errors.length === 1 ? "" : "s"}.`,
+              };
+            }
+            return { status: "passed" };
+          } catch (error) {
+            return {
+              status: "failed",
+              detail:
+                error instanceof Error
+                  ? error.message
+                  : "The flow check could not be completed.",
+            };
+          }
+        },
+        optimise: async (date) => {
+          try {
+            const completion = await runOptimisationForDate(date);
+            return completion.status === "completed"
+              ? { status: "succeeded" }
+              : {
+                  status: "failed",
+                  detail:
+                    completion.message ||
+                    `The optimiser finished with status ${completion.status}.`,
+                };
+          } catch (error) {
+            return {
+              status: "failed",
+              detail:
+                error instanceof Error
+                  ? error.message
+                  : "The optimisation could not be started.",
+            };
+          }
+        },
+      });
+      const summary = summariseAllDaysSteps(completed);
+      addToast(
+        `${summary.succeeded} of ${completed.length} days optimised.`,
+        summary.succeeded === completed.length ? "success" : "warning",
+      );
+    } catch (error) {
+      console.error("All-days optimisation stopped unexpectedly:", error);
+      addToast("All-days optimisation stopped unexpectedly.", "error");
+    } finally {
+      setOptimiseAllRunning(false);
+    }
+  }, [
+    addToast,
+    assertPeopleHaveHomeLocations,
+    getDayLabel,
+    getEventTasksForWorkingDay,
+    optimiseAllRunning,
+    optimizationState.isOptimizing,
+    runFullFlowCheckForDate,
+    runOptimisationForDate,
+    selectedEvent.end_date,
+    selectedEvent.start_date,
+  ]);
+
   // Auto-check flow when data changes (debounced, cancel-and-replace)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -1480,6 +1781,8 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         getDayInfo={getDayInfo}
         onRefresh={() => setRefreshTrigger((prev) => prev + 1)}
         onInfeasibleTaskClick={handleInfeasibleTaskClick}
+        onOptimiseAllDays={handleOptimiseAllDays}
+        allDaysRunning={optimiseAllRunning}
         onOptimise={async () => {
           // --- Run a FULL flow check (including floating tasks) before optimising ---
           // When mode is "always-full", auto-checks already include floating tasks,
@@ -1801,6 +2104,13 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         isExporting={isExportingTasks}
         onCancel={() => setShowExportModal(false)}
         onExport={handleExportSelectedTasks}
+      />
+
+      <OptimiseAllDaysModal
+        open={showOptimiseAllDays}
+        running={optimiseAllRunning}
+        steps={allDaysSteps}
+        onClose={() => setShowOptimiseAllDays(false)}
       />
 
       {/* Task Edit Modal */}
