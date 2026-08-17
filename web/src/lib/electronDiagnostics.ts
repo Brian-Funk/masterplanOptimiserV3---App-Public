@@ -76,6 +76,10 @@ export interface ElectronDiagnosticBridge {
   exportSchedulePdf?: (payload: PdfExportPayload) => Promise<PdfExportResult>;
   getPdfExportJob?: (jobId: string) => Promise<PdfExportPayload & { generatedAt: string }>;
   notifyPdfExportReady?: (jobId: string) => Promise<{ success: boolean }>;
+  notifyPdfExportFailed?: (
+    jobId: string,
+    code: string,
+  ) => Promise<{ success: boolean }>;
 }
 
 declare global {

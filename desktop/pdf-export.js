@@ -7,6 +7,9 @@ const MAX_DAYS = 62;
 const MAX_TASKS_PER_DAY = 2000;
 const MAX_TASK_BYTES_PER_DAY = 1024 * 1024;
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
+const PDF_READY_BASE_TIMEOUT_MS = 30000;
+const PDF_READY_PER_TASK_TIMEOUT_MS = 350;
+const PDF_READY_MAX_TIMEOUT_MS = 180000;
 const RESERVED_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 const PDF_FOOTER_TEMPLATE = `
   <div style="box-sizing:border-box;display:flex;width:100%;align-items:center;justify-content:space-between;padding:0 10mm;color:#6b7280;font-family:'Source Sans 3',Arial,sans-serif;font-size:7.5pt;">
@@ -25,6 +28,23 @@ function buildPdfPrintOptions() {
     footerTemplate: PDF_FOOTER_TEMPLATE,
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
   };
+}
+
+/**
+ * Give Chromium enough time to lay out a real multi-day schedule while keeping
+ * a firm upper bound if the hidden renderer never reports readiness.
+ */
+function calculatePdfReadyTimeout(payload) {
+  const taskCount = Array.isArray(payload?.days)
+    ? payload.days.reduce(
+      (total, day) => total + (Array.isArray(day?.tasks) ? day.tasks.length : 0),
+      0,
+    )
+    : 0;
+  return Math.min(
+    PDF_READY_MAX_TIMEOUT_MS,
+    PDF_READY_BASE_TIMEOUT_MS + taskCount * PDF_READY_PER_TASK_TIMEOUT_MS,
+  );
 }
 
 function settingsPath(userDataDir) {
@@ -182,6 +202,7 @@ function validatePdfExportPayload(payload) {
 
 module.exports = {
   buildPdfPrintOptions,
+  calculatePdfReadyTimeout,
   clearPdfExportSettings,
   describePdfExportDirectory,
   localTimestamp,

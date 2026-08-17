@@ -67,11 +67,17 @@ export function formatPdfFieldValue(value: unknown): string {
 }
 
 function taskTime(task: CalendarTask): string {
-  if (task.time_range) return `${task.time_range.start} - ${task.time_range.end}`;
-  if (task.start_end_time) {
-    return `${task.start_end_time.start} - ${task.start_end_time.end}`;
+  if (task.time_range) {
+    const start = scalarDisplayValue(task.time_range.start);
+    const end = scalarDisplayValue(task.time_range.end);
+    if (start || end) return `${start || "?"} - ${end || "?"}`;
   }
-  return task.time || "Not scheduled";
+  if (task.start_end_time) {
+    const start = scalarDisplayValue(task.start_end_time.start);
+    const end = scalarDisplayValue(task.start_end_time.end);
+    if (start || end) return `${start || "?"} - ${end || "?"}`;
+  }
+  return scalarDisplayValue(task.time) || "Not scheduled";
 }
 
 function taskSortKey(task: CalendarTask, originalIndex: number): string {
@@ -133,11 +139,11 @@ export function buildPdfDayTaskModel(tasks: CalendarTask[]): PdfDayTaskModel {
     const reference = task._pdf_reference as string;
     return {
       reference,
-      title: task.name || "Unnamed task",
-      taskType: task.task_type_name || "Operational task",
+      title: scalarDisplayValue(task.name) || "Unnamed task",
+      taskType: scalarDisplayValue(task.task_type_name) || "Operational task",
       colour: safeColour(task.task_type_color),
       time: taskTime(task),
-      location: task.location_name?.trim() || "",
+      location: scalarDisplayValue(task.location_name),
       allocations: allocationLines(task),
       fields: detailFields(task),
     };

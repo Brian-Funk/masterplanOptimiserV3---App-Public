@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('electron', {
   exportSchedulePdf: (payload) => ipcRenderer.invoke('export-schedule-pdf', payload),
   getPdfExportJob: (jobId) => ipcRenderer.invoke('get-pdf-export-job', jobId),
   notifyPdfExportReady: (jobId) => ipcRenderer.invoke('notify-pdf-export-ready', jobId),
+  notifyPdfExportFailed: (jobId, code) => ipcRenderer.invoke('notify-pdf-export-failed', jobId, code),
 
   /** Toggle the current Electron BrowserWindow fullscreen state. */
   setWindowFullscreen: (fullscreen) => ipcRenderer.invoke('set-window-fullscreen', Boolean(fullscreen)),

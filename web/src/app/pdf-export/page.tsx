@@ -23,6 +23,13 @@ function waitForImages(): Promise<void> {
   return Promise.all(pending).then(() => undefined);
 }
 
+function waitAtMost(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
+  return Promise.race([
+    promise.then(() => undefined),
+    new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
 /** Fit the visual timeline to portrait width without shrinking it to a fixed page height. */
 function fitCalendars() {
   document.querySelectorAll<HTMLElement>("[data-pdf-calendar-frame]").forEach((frame) => {
@@ -130,26 +137,47 @@ export default function PdfExportPage() {
     window.electron
       .getPdfExportJob(jobId)
       .then(setJob)
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+      .catch((reason) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        if (window.electron?.notifyPdfExportFailed) {
+          void window.electron.notifyPdfExportFailed(jobId, "PDF_JOB_LOAD_FAILED");
+        }
+      });
     return () => observer.disconnect();
   }, []);
 
-  const days = useMemo(
-    () =>
-      job?.days.map((day) => ({
-        ...day,
-        model: buildPdfDayTaskModel(day.tasks as CalendarTask[]),
-      })) || [],
-    [job],
-  );
+  const renderedJob = useMemo(() => {
+    if (!job) return { days: [], error: "" };
+    try {
+      return {
+        days: job.days.map((day) => ({
+          ...day,
+          model: buildPdfDayTaskModel(day.tasks as CalendarTask[]),
+        })),
+        error: "",
+      };
+    } catch {
+      return { days: [], error: "PDF_LAYOUT_FAILED" };
+    }
+  }, [job]);
+  const days = renderedJob.days;
+
+  useEffect(() => {
+    if (!renderedJob.error) return;
+    const jobId = new URLSearchParams(window.location.search).get("job");
+    setError("The PDF schedule could not be laid out.");
+    if (jobId && window.electron?.notifyPdfExportFailed) {
+      void window.electron.notifyPdfExportFailed(jobId, renderedJob.error);
+    }
+  }, [renderedJob.error]);
 
   useEffect(() => {
     if (!job || days.length === 0) return;
     const jobId = new URLSearchParams(window.location.search).get("job");
     let cancelled = false;
     const ready = async () => {
-      await document.fonts.ready;
-      await waitForImages();
+      await waitAtMost(document.fonts.ready, 15000);
+      await waitAtMost(waitForImages(), 15000);
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
@@ -159,7 +187,12 @@ export default function PdfExportPage() {
         await window.electron.notifyPdfExportReady(jobId);
       }
     };
-    ready().catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+    ready().catch((reason) => {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      if (jobId && window.electron?.notifyPdfExportFailed) {
+        void window.electron.notifyPdfExportFailed(jobId, "PDF_READY_FAILED");
+      }
+    });
     return () => {
       cancelled = true;
     };
