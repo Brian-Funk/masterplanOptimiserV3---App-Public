@@ -1,12 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiRequestError, formatApiErrorMessage, mpBackendApi } from "@/lib/api";
+import {
+  ApiRequestError,
+  dataPolicyAcknowledgementGuidance,
+  formatApiErrorMessage,
+  mpBackendApi,
+} from "@/lib/api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("formatApiErrorMessage", () => {
+  it("provides explicit publish-notification guidance for missing acknowledgement", () => {
+    expect(dataPolicyAcknowledgementGuidance(true)).toContain(
+      "Publication blocked: permitted-data policy not acknowledged",
+    );
+    expect(dataPolicyAcknowledgementGuidance(true)).toContain(
+      "I reviewed necessity and permitted audiences",
+    );
+    expect(dataPolicyAcknowledgementGuidance(false)).toContain(
+      "Retry the policy check",
+    );
+  });
+
   it("uses a safe nested FastAPI message instead of stringifying the object", () => {
     expect(
       formatApiErrorMessage(

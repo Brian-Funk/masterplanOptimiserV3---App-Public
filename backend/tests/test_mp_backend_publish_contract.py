@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.v1 import mp_backend
 from app.db.database import Base
-from app.models import Capability, Event, Person, Task, TaskTemplate, TaskType
+from app.models import Assignment, Capability, Event, Person, Task, TaskTemplate, TaskType
 
 
 @pytest.fixture()
@@ -48,6 +48,32 @@ def test_capability_requirements_use_bounded_labels():
 def test_invalid_capability_requirements_fail_closed(value):
     with pytest.raises(ValueError):
         mp_backend._published_capability_labels(value, {}, {})
+
+
+def test_server_validation_message_names_tasks_without_raw_json():
+    class Response:
+        text = '{"detail":[{"msg":"Invalid assignment"}]}'
+
+        @staticmethod
+        def json():
+            return {
+                "detail": [
+                    {
+                        "loc": ["body", "tasks", 1],
+                        "msg": "Published assignments are inconsistent",
+                    }
+                ]
+            }
+
+    message = mp_backend._server_validation_message(
+        Response(),
+        [{"name": "First task"}, {"name": "Pilatus Transfer"}],
+    )
+
+    assert message == (
+        "Pilatus Transfer: Published assignments are inconsistent"
+    )
+    assert "{\"detail\"" not in message
 
 
 def test_publish_uses_one_wire_type_per_capability_field(db_session, monkeypatch):
@@ -283,10 +309,10 @@ def test_publish_converts_concrete_transferees_to_bounded_people(db_session, mon
             "start_time": 20 * 60 + 5,
             "end_time": 20 * 60 + 40,
             "field_assignments": {
-                "people_transferee": [people[0].id, people[1].id],
-                "front": [people[2].id],
-                "side": [people[3].id, people[4].id],
                 "back": [people[5].id],
+                "side": [people[3].id, people[4].id],
+                "front": [people[2].id],
+                "people_transferee": [people[0].id, people[1].id],
             },
         },
         additional={"date": "2032-04-21"},
@@ -362,7 +388,145 @@ def test_publish_converts_concrete_transferees_to_bounded_people(db_session, mon
         "side": [people[3].id, people[4].id],
         "back": [people[5].id],
     }
+    assert [person["person_id"] for person in published["attendees"]] == [
+        people[0].id,
+        people[1].id,
+        people[2].id,
+        people[3].id,
+        people[4].id,
+        people[5].id,
+    ]
+    assert [
+        (
+            definition["name"],
+            [
+                person["person_id"]
+                for person in published["field_assignments"].get(
+                    definition["id"], []
+                )
+            ],
+        )
+        for definition in definitions
+        if definition["type"] == "persons_list"
+    ] == [
+        ("Transferee", [people[0].id, people[1].id]),
+        ("Front-Orga", [people[2].id]),
+        ("Side-Orga", [people[3].id, people[4].id]),
+        ("Back-Orga", [people[5].id]),
+    ]
     assert all(
         definition["type"] not in {"transferee", "dynamic_transfer_allocation", "capabilities_list"}
         for definition in definitions
     )
+
+
+def test_publish_converts_unclassified_task_assignments_to_structured_field(
+    db_session, monkeypatch
+):
+    event = Event(
+        name="Synthetic event",
+        start_date=date(2032, 4, 21),
+        end_date=date(2032, 4, 21),
+        meta_data={"schedule_day_range": {"startHour": 6, "endHour": 24}},
+    )
+    task_type = TaskType(name="Operational task", color="#123456")
+    db_session.add_all([event, task_type])
+    db_session.flush()
+    template = TaskTemplate(
+        machine_name="plain_task",
+        name="Plain task",
+        task_type_id=task_type.id,
+        fields=[{"id": "notes", "name": "Notes", "type": "text"}],
+    )
+    people = [
+        Person(event_id=event.id, first_name="Synthetic", last_name=f"Person {index}")
+        for index in range(1, 3)
+    ]
+    db_session.add_all([template, *people])
+    db_session.flush()
+    task = Task(
+        event_id=event.id,
+        task_template_id=template.id,
+        task_type_id=task_type.id,
+        title="Plain assigned task",
+        constraints={
+            "start_time": 9 * 60,
+            "end_time": 10 * 60,
+            "field_values": {"notes": "Synthetic note"},
+        },
+        final={"start_time": 9 * 60, "end_time": 10 * 60},
+        additional={"date": "2032-04-21"},
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add_all([
+        Assignment(event_id=event.id, task_id=task.id, person_id=people[1].id),
+        Assignment(event_id=event.id, task_id=task.id, person_id=people[0].id),
+    ])
+    db_session.commit()
+
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"tasks_created": 1, "persons_created": len(people)}
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return Response()
+
+    async def acknowledged(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        mp_backend,
+        "_get_connection",
+        lambda *_args: ("https://server.example", "synthetic-secret"),
+    )
+    monkeypatch.setattr(
+        mp_backend,
+        "_require_current_policy_acknowledgement",
+        acknowledged,
+    )
+    monkeypatch.setattr(mp_backend.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(mp_backend.publish_to_mp_backend(event.id, None, db_session))
+
+    assert result.tasks_created == 1
+    published = captured["payload"]["tasks"][0]
+    assert published["field_definitions"] == [
+        {
+            "id": "notes",
+            "name": "Notes",
+            "type": "text",
+            "purpose": "operational_instruction",
+            "visibility": "participant",
+        },
+        {
+            "id": "field_Assigned",
+            "name": "Assigned",
+            "type": "persons_list",
+            "purpose": "assignment",
+            "visibility": "participant",
+        },
+    ]
+    expected_people = [
+        {"name": "Synthetic Person 2", "person_id": people[1].id},
+        {"name": "Synthetic Person 1", "person_id": people[0].id},
+    ]
+    assert published["field_assignments"] == {"field_Assigned": expected_people}
+    assert published["attendees"] == expected_people

@@ -100,6 +100,15 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** Stable notification copy for a publish blocked by the legal policy gate. */
+export function dataPolicyAcknowledgementGuidance(
+  policyAvailable: boolean,
+): string {
+  return policyAvailable
+    ? "Publication blocked: permitted-data policy not acknowledged. In this Publish preview, review the exact policy and click ‘I reviewed necessity and permitted audiences’, then publish again."
+    : "Publication blocked: permitted-data policy acknowledgement is required, but the current policy could not be loaded. Retry the policy check before publishing.";
+}
+
 function apiRequestError(
   payload: unknown,
   response: Response,
