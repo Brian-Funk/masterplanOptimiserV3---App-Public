@@ -34,6 +34,7 @@ import {
   publishStateApi,
   eventsApi,
   ApiRequestError,
+  dataPolicyAcknowledgementGuidance,
   type MpBackendDataPolicy,
   type PublishTarget,
 } from "@/lib/api";
@@ -1458,9 +1459,16 @@ export function OptimisedTab({
             (mpError.status === 428 ||
               mpError.code === "desktop_data_policy_acknowledgement_required")
           ) {
-            await loadPublishDataPolicy(selectedEvent.id);
-            setPublishPolicyError(mpError.message);
-            addToast(mpError.message, "error");
+            const currentPolicy = await loadPublishDataPolicy(selectedEvent.id);
+            const acknowledgementMessage =
+              dataPolicyAcknowledgementGuidance(Boolean(currentPolicy));
+            if (currentPolicy) {
+              // Keep the acknowledgement control visible. A 428 can mean that
+              // the policy changed between preview and publication; it is not
+              // a generic policy-loading failure.
+              setPublishPolicyError(null);
+            }
+            addToast(acknowledgementMessage, "error");
             return;
           }
           const msg =

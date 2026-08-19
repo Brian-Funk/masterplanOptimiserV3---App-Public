@@ -190,6 +190,46 @@ def _get_setting(db: Session, key: str) -> Optional[str]:
     return row.value if row else None
 
 
+def _server_validation_message(response, tasks_payload: list[dict]) -> str:
+    """Return a bounded actionable message from a Server validation response."""
+
+    try:
+        body = response.json()
+    except (TypeError, ValueError):
+        body = None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, list):
+        messages: list[str] = []
+        for issue in detail[:10]:
+            if not isinstance(issue, dict):
+                continue
+            message = issue.get("msg")
+            if not isinstance(message, str) or not message.strip():
+                continue
+            location = issue.get("loc")
+            task_name = None
+            if (
+                isinstance(location, list)
+                and len(location) >= 3
+                and location[0:2] == ["body", "tasks"]
+                and isinstance(location[2], int)
+                and 0 <= location[2] < len(tasks_payload)
+            ):
+                candidate = tasks_payload[location[2]].get("name")
+                if isinstance(candidate, str) and candidate.strip():
+                    task_name = candidate.strip()
+            messages.append(f"{task_name}: {message}" if task_name else message)
+        if messages:
+            return "; ".join(messages)[:1000]
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()[:1000]
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()[:1000]
+    return (response.text[:1000] if response.text else "Validation error")
+
+
 def _set_setting(db: Session, key: str, value: str) -> None:
     row = db.query(AppSettings).filter(AppSettings.key == key).first()
     if row:
@@ -1289,7 +1329,12 @@ async def publish_to_mp_backend(
         capability.machine_name: capability for capability in capabilities
     }
 
-    assignments = db.query(Assignment).filter(Assignment.event_id == event_id).all()
+    assignments = (
+        db.query(Assignment)
+        .filter(Assignment.event_id == event_id)
+        .order_by(Assignment.task_id, Assignment.id)
+        .all()
+    )
     # Group assignments by task_id
     assignments_by_task: Dict[int, List[Assignment]] = {}
     for a in assignments:
@@ -1527,6 +1572,19 @@ async def publish_to_mp_backend(
                             # people, its optimiser requirement must not remain
                             # in the scalar-value channel as well.
                             field_values_resolved.pop(fa_field_id, None)
+                        elif fa_field_id == "field_Assigned":
+                            # The optimiser uses this stable synthetic field for
+                            # assigned people that do not belong to a named role.
+                            # Publish it as a bounded allocation instead of
+                            # falling back to the legacy flat-attendee channel.
+                            field_definitions_out.append({
+                                "id": "field_Assigned",
+                                "name": "Assigned",
+                                "type": "persons_list",
+                                "purpose": "assignment",
+                                "visibility": "participant",
+                            })
+                            def_idx[fa_field_id] = len(field_definitions_out) - 1
                         else:
                             field_assignments.pop(fa_field_id, None)
 
@@ -1581,13 +1639,12 @@ async def publish_to_mp_backend(
                         )
                     allocation_owner[person_id] = field_id
 
-        effective_field_person_ids: set[int] = set()
-        attendees_by_id: dict[int, dict[str, object]] = {}
-        for field_people in (field_assignments or {}).values():
-            for field_person in field_people:
-                person_id = int(field_person["person_id"])
-                effective_field_person_ids.add(person_id)
-                attendees_by_id.setdefault(person_id, field_person)
+        effective_field_person_ids: set[int] = {
+            int(field_person["person_id"])
+            for field_people in (field_assignments or {}).values()
+            for field_person in field_people
+        }
+        unrepresented_task_people: list[dict[str, object]] = []
         for assignment in task_assignments:
             person_id = assignment.person_id
             if (
@@ -1596,12 +1653,47 @@ async def publish_to_mp_backend(
             ):
                 continue
             person = persons_by_id.get(person_id)
-            if person:
-                attendees_by_id.setdefault(person_id, {
+            if person and person_id not in effective_field_person_ids:
+                unrepresented_task_people.append({
                     "name": f"{person.first_name} {person.last_name}",
                     "person_id": person.id,
                 })
-        attendees = list(attendees_by_id.values())
+                effective_field_person_ids.add(person_id)
+
+        if unrepresented_task_people:
+            if field_assignments is None:
+                field_assignments = {}
+            if field_definitions_out is None:
+                field_definitions_out = []
+            generic_assignment = next(
+                (
+                    definition
+                    for definition in field_definitions_out
+                    if definition["id"] == "field_Assigned"
+                ),
+                None,
+            )
+            if generic_assignment is None:
+                field_definitions_out.append({
+                    "id": "field_Assigned",
+                    "name": "Assigned",
+                    "type": "persons_list",
+                    "purpose": "assignment",
+                    "visibility": "participant",
+                })
+            field_assignments.setdefault("field_Assigned", []).extend(
+                unrepresented_task_people
+            )
+
+        # The Server validates the compatibility attendee projection byte for
+        # byte against structured allocations in definition order. Desktop no
+        # longer publishes a separate legacy attendee source.
+        attendees = [
+            field_person
+            for definition in (field_definitions_out or [])
+            if definition["type"] == "persons_list"
+            for field_person in (field_assignments or {}).get(definition["id"], [])
+        ]
 
         tasks_payload.append({
             "id": task.id,
@@ -1690,7 +1782,7 @@ async def publish_to_mp_backend(
         elif resp.status_code == 401:
             raise HTTPException(status_code=401, detail="Server rejected the publish secret")
         elif resp.status_code == 422:
-            detail = resp.text[:500] if resp.text else "Validation error"
+            detail = _server_validation_message(resp, tasks_payload)
             logger.warning(f"MP-Backend 422 validation error: {detail}")
             raise HTTPException(status_code=502, detail=f"Server validation error: {detail}")
         else:
