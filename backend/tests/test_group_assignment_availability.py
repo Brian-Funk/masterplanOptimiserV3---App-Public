@@ -6,6 +6,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.group_member_resolution import resolve_group_assignment_for_task
+from app.core.normalizer import (
+    Capability as FlowCapability,
+    Location as FlowLocation,
+    Person as FlowPerson,
+    Task as FlowTask,
+    normalize_flow_input,
+)
 from app.core.normalizer_optimization import (
     OptimizationCapability,
     OptimizationLocation,
@@ -278,3 +285,255 @@ def test_optimization_normalization_excludes_unavailable_group_members_from_payl
     assert normalized.tasks[0].preassigned_person_ids == [1, 2, 3, 4]
     assert task_field_values["field_people"] == original_task_group_value
     assert group.meta_data["members"] == person_refs(1, 2, 3, 4, 5)
+
+
+def _add_person_field_template(
+    db_session,
+    *,
+    is_floating=False,
+    person_field_count=1,
+):
+    task_type = TaskType(name="Coverage", sort_order=0, fatigue_score=1)
+    db_session.add(task_type)
+    db_session.commit()
+
+    fields = [
+        {
+            "id": "field_time_range" if is_floating else "field_time",
+            "name": "Time",
+            "type": "time_range" if is_floating else "start_end_time",
+        },
+        *[
+            {
+                "id": f"field_people_{index}",
+                "name": f"People {index}",
+                "type": "persons_list",
+            }
+            for index in range(1, person_field_count + 1)
+        ],
+        {
+            "id": "field_capabilities",
+            "name": "Required capabilities",
+            "type": "capabilities_list",
+        },
+    ]
+    if is_floating:
+        fields.insert(
+            1,
+            {"id": "field_duration", "name": "Duration", "type": "duration"},
+        )
+
+    template = TaskTemplate(
+        machine_name="multi_person_floating" if is_floating else "multi_person_static",
+        name="Multi-person template",
+        task_type_id=task_type.id,
+        fields=fields,
+        is_floating=is_floating,
+        is_transfer=False,
+    )
+    db_session.add(template)
+    db_session.commit()
+    return task_type, template
+
+
+def _normalize_person_field_task_both_ways(
+    db_session,
+    event,
+    task_type,
+    template,
+    field_values,
+    *,
+    is_floating=False,
+    person_count=6,
+):
+    flow_persons = [
+        FlowPerson(id=person_id, first_name="Person", last_name=str(person_id))
+        for person_id in range(1, person_count + 1)
+    ]
+    optimization_persons = [
+        OptimizationPerson(id=person_id, first_name="Person", last_name=str(person_id))
+        for person_id in range(1, person_count + 1)
+    ]
+
+    flow = normalize_flow_input(
+        tasks=[
+            FlowTask(
+                id=501,
+                name="Multi-person task",
+                task_type_id=task_type.id,
+                template_id=template.id,
+                event_id=event.id,
+                location_id=1,
+                is_floating=is_floating,
+                field_values=deepcopy(field_values),
+            )
+        ],
+        persons=flow_persons,
+        locations=[FlowLocation(id=1, event_id=event.id, name="Room")],
+        capabilities=[
+            FlowCapability(
+                id=1,
+                name="Extended Organiser",
+                machine_name="is_ext_orga",
+            )
+        ],
+        db=db_session,
+        working_day_date="2026-01-01",
+    )
+    optimization = normalize_optimization_input(
+        tasks=[
+            OptimizationTask(
+                id=501,
+                name="Multi-person task",
+                task_type_id=task_type.id,
+                template_id=template.id,
+                location_id=1,
+                is_floating=is_floating,
+                field_values=deepcopy(field_values),
+            )
+        ],
+        persons=optimization_persons,
+        locations=[OptimizationLocation(id=1, name="Room")],
+        capabilities=[
+            OptimizationCapability(
+                id=1,
+                name="Extended Organiser",
+                machine_name="is_ext_orga",
+            )
+        ],
+        task_type_fatigue_map={task_type.id: 1.0},
+        db=db_session,
+        event_id=event.id,
+        working_day_date="2026-01-01",
+    )
+    return flow, optimization
+
+
+@pytest.mark.parametrize(
+    ("capability_slots", "expected_person_ids"),
+    [
+        (2, [1, 2, 3, 4, 5, 6]),  # CMOJ Official CheckIn shape
+        (3, [1, 2, 3, 4, 5, 6]),  # TB Delegates CheckIn shape
+    ],
+)
+def test_static_multi_person_fields_match_optimization_normalization(
+    db_session,
+    event,
+    capability_slots,
+    expected_person_ids,
+):
+    task_type, template = _add_person_field_template(
+        db_session,
+        person_field_count=6,
+    )
+    field_values = {
+        "field_time": {"start": "09:00", "end": "12:00"},
+        **{
+            f"field_people_{person_id}": person_refs(person_id)
+            for person_id in expected_person_ids
+        },
+        "field_capabilities": [{"id": 1, "quantity": capability_slots}],
+    }
+
+    flow, optimization = _normalize_person_field_task_both_ways(
+        db_session,
+        event,
+        task_type,
+        template,
+        field_values,
+    )
+
+    assert flow.errors == []
+    assert optimization.errors == []
+    assert flow.tasks[0].preassigned_person_ids == expected_person_ids
+    assert optimization.tasks[0].preassigned_person_ids == expected_person_ids
+    assert flow.tasks[0].requirements == {"is_ext_orga": capability_slots}
+    assert optimization.tasks[0].required_capabilities == {
+        "is_ext_orga": capability_slots
+    }
+
+
+def test_static_single_person_field_remains_unchanged(db_session, event):
+    task_type, template = _add_person_field_template(db_session)
+    field_values = {
+        "field_time": {"start": "09:00", "end": "10:00"},
+        "field_people_1": person_refs(2, 1),
+        "field_capabilities": [],
+    }
+
+    flow, optimization = _normalize_person_field_task_both_ways(
+        db_session,
+        event,
+        task_type,
+        template,
+        field_values,
+        person_count=2,
+    )
+
+    assert flow.errors == []
+    assert optimization.errors == []
+    assert flow.tasks[0].preassigned_person_ids == [2, 1]
+    assert optimization.tasks[0].preassigned_person_ids == [2, 1]
+
+
+def test_static_person_fields_accumulate_groups_and_deduplicate_people(db_session, event):
+    task_type, template = _add_person_field_template(
+        db_session,
+        person_field_count=3,
+    )
+    group = add_group(db_session, event.id, "Coverage team", person_refs(2, 3))
+    field_values = {
+        "field_time": {"start": "09:00", "end": "10:00"},
+        "field_people_1": person_refs(1),
+        "field_people_2": [{"type": "group", "id": group.id}],
+        "field_people_3": person_refs(1, 4),
+        "field_capabilities": [],
+    }
+
+    flow, optimization = _normalize_person_field_task_both_ways(
+        db_session,
+        event,
+        task_type,
+        template,
+        field_values,
+        person_count=4,
+    )
+
+    assert flow.errors == []
+    assert optimization.errors == []
+    assert flow.tasks[0].preassigned_person_ids == [1, 2, 3, 4]
+    assert optimization.tasks[0].preassigned_person_ids == [1, 2, 3, 4]
+
+
+def test_floating_multi_person_fields_match_every_optimization_candidate(db_session, event):
+    task_type, template = _add_person_field_template(
+        db_session,
+        is_floating=True,
+        person_field_count=2,
+    )
+    field_values = {
+        "field_time_range": {"start": "09:00", "end": "12:00"},
+        "field_duration": 60,
+        "field_people_1": person_refs(1, 2),
+        "field_people_2": person_refs(2, 3),
+        "field_capabilities": [],
+    }
+
+    flow, optimization = _normalize_person_field_task_both_ways(
+        db_session,
+        event,
+        task_type,
+        template,
+        field_values,
+        is_floating=True,
+        person_count=3,
+    )
+
+    assert flow.errors == []
+    assert optimization.errors == []
+    assert flow.floating_tasks[0].preassigned_person_ids == [1, 2, 3]
+    assert optimization.floating_tasks[0].candidates
+    assert all(
+        candidate.preassigned_person_ids == [1, 2, 3]
+        for candidate in optimization.floating_tasks[0].candidates
+    )
