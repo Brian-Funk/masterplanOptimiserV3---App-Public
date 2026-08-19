@@ -1346,18 +1346,32 @@ async def publish_to_mp_backend(
             field_values_resolved = {}
             field_definitions_out = []
             raw_field_values = (task.constraints or {}).get("field_values", {})
+            schedule_fa = (
+                (task.final or {}).get("field_assignments")
+                or (task.optimised or {}).get("field_assignments")
+                or {}
+            )
 
             for field in tmpl.fields:
-                try:
-                    published_definition = reviewed_publish_definition(field)
-                except ValueError as exc:
-                    raise HTTPException(status_code=409, detail=str(exc)) from exc
-                if published_definition is None:
-                    continue
                 field_id = field.get("id", "")
                 field_name = field.get("name", field_id)
                 field_type = field.get("type", "")
                 field_category = field.get("category", "")
+                try:
+                    publish_field = field
+                    if (
+                        field_type == "transferee"
+                        and _resolve_publish_person_ids(schedule_fa.get(field_id))
+                    ):
+                        # ``transferee`` remains an optimiser-only input type. Once
+                        # the optimiser has produced concrete people, expose only
+                        # that bounded assignment on the Server wire.
+                        publish_field = {**field, "type": "persons_list"}
+                    published_definition = reviewed_publish_definition(publish_field)
+                except ValueError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
+                if published_definition is None:
+                    continue
 
                 # Export field definition (id, name, type)
                 field_definitions_out.append(published_definition)
@@ -1434,6 +1448,11 @@ async def publish_to_mp_backend(
                             required_count,
                         )
 
+                elif field_type == "transferee":
+                    # The special field has no scalar wire value. Its concrete
+                    # people are resolved exclusively from ``schedule_fa`` below.
+                    pass
+
                 elif field_type == "location":
                     loc_val = raw_field_values.get(field_id)
                     loc_id = loc_val if isinstance(loc_val, int) else (loc_val.get("value") if isinstance(loc_val, dict) else None)
@@ -1474,11 +1493,6 @@ async def publish_to_mp_backend(
             # capabilities_list fields that represent roles like Front-Orga).
             # Resolve those person IDs and override the field type so the web
             # knows they contain persons.
-            schedule_fa = (
-                (task.final or {}).get("field_assignments")
-                or (task.optimised or {}).get("field_assignments")
-                or {}
-            )
             if schedule_fa:
                 # Build a quick lookup for field_definitions_out by id
                 def_idx = {d["id"]: i for i, d in enumerate(field_definitions_out)}

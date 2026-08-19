@@ -33,6 +33,8 @@ import {
   appSettingsApi,
   publishStateApi,
   eventsApi,
+  ApiRequestError,
+  type MpBackendDataPolicy,
   type PublishTarget,
 } from "@/lib/api";
 import PersonReplacementMenu from "@/components/PersonReplacementMenu";
@@ -1075,8 +1077,72 @@ export function OptimisedTab({
   const [publishPreview, setPublishPreview] = useState<PublishPreview | null>(
     null,
   );
+  const [publishDataPolicy, setPublishDataPolicy] =
+    useState<MpBackendDataPolicy | null>(null);
+  const [publishPolicyLoading, setPublishPolicyLoading] = useState(false);
+  const [publishPolicyError, setPublishPolicyError] = useState<string | null>(
+    null,
+  );
+  const [acknowledgingPublishPolicy, setAcknowledgingPublishPolicy] =
+    useState(false);
   const [publishedDayRecords, setPublishedDayRecords] =
     useState<PublishedDayRecords>({});
+
+  const loadPublishDataPolicy = useCallback(
+    async (eventId: number): Promise<MpBackendDataPolicy | null> => {
+      setPublishPolicyLoading(true);
+      setPublishPolicyError(null);
+      try {
+        const policy = await mpBackendApi.getDataPolicy(eventId);
+        setPublishDataPolicy(policy);
+        return policy;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "The current Server permitted-data policy is unavailable.";
+        setPublishDataPolicy(null);
+        setPublishPolicyError(message);
+        return null;
+      } finally {
+        setPublishPolicyLoading(false);
+      }
+    },
+    [],
+  );
+
+  const handlePublishPolicyAcknowledgement = useCallback(async () => {
+    if (!selectedEvent?.id || !publishDataPolicy) return;
+    setAcknowledgingPublishPolicy(true);
+    setPublishPolicyError(null);
+    try {
+      await mpBackendApi.acknowledgeDataPolicy(
+        selectedEvent.id,
+        publishDataPolicy.policy_version,
+        publishDataPolicy.policy_sha256,
+      );
+      const currentPolicy = await loadPublishDataPolicy(selectedEvent.id);
+      if (!currentPolicy?.acknowledged) {
+        setPublishPolicyError(
+          "The Server policy changed before acknowledgement completed. Review the current exact policy.",
+        );
+        return;
+      }
+      addToast("Exact Server permitted-data policy acknowledged.", "success");
+    } catch (error) {
+      setPublishPolicyError(
+        error instanceof Error ? error.message : "Policy acknowledgement failed.",
+      );
+    } finally {
+      setAcknowledgingPublishPolicy(false);
+    }
+  }, [addToast, loadPublishDataPolicy, publishDataPolicy, selectedEvent?.id]);
+
+  useEffect(() => {
+    setPublishDataPolicy(null);
+    setPublishPolicyError(null);
+    setPublishPolicyLoading(false);
+  }, [selectedEvent?.id]);
 
   // Load publish target setting
   useEffect(() => {
@@ -1227,12 +1293,31 @@ export function OptimisedTab({
     const preview = buildPublishPreview(allDays ? "all_days" : "selected_day");
     if (preview) {
       setPublishPreview(preview);
+      if (hasPublishDestination(publishTarget, "mp-backend")) {
+        void loadPublishDataPolicy(selectedEvent.id);
+      } else {
+        setPublishDataPolicy(null);
+        setPublishPolicyError(null);
+      }
     }
   };
 
   const executePublishPreview = async () => {
     if (!selectedEvent || !publishPreview) return;
     if (isPublishing || !publishPreview.canPublish) return;
+
+    if (hasPublishDestination(publishTarget, "mp-backend")) {
+      const currentPolicy = await loadPublishDataPolicy(selectedEvent.id);
+      if (!currentPolicy?.acknowledged) {
+        addToast(
+          currentPolicy
+            ? "Review and acknowledge the current exact Server permitted-data policy before publishing."
+            : "The current Server permitted-data policy could not be verified.",
+          "error",
+        );
+        return;
+      }
+    }
 
     const eventInstances = contextInstances.filter(
       (inst: any) => inst.event_id === selectedEvent.id,
@@ -1368,6 +1453,16 @@ export function OptimisedTab({
           await mpBackendApi.publish(selectedEvent.id, mpBackendDates);
           mpBackendPublished = true;
         } catch (mpError: any) {
+          if (
+            mpError instanceof ApiRequestError &&
+            (mpError.status === 428 ||
+              mpError.code === "desktop_data_policy_acknowledgement_required")
+          ) {
+            await loadPublishDataPolicy(selectedEvent.id);
+            setPublishPolicyError(mpError.message);
+            addToast(mpError.message, "error");
+            return;
+          }
           const msg =
             mpError instanceof Error ? mpError.message : String(mpError);
           if (msg.includes("not configured")) {
@@ -2133,10 +2228,23 @@ export function OptimisedTab({
         open={!!publishPreview}
         preview={publishPreview}
         publishing={isPublishing}
+        policyRequired={hasPublishDestination(publishTarget, "mp-backend")}
+        dataPolicy={publishDataPolicy}
+        policyLoading={publishPolicyLoading}
+        policyError={publishPolicyError}
+        acknowledgingPolicy={acknowledgingPublishPolicy}
         onCancel={() => {
-          if (!isPublishing) setPublishPreview(null);
+          if (!isPublishing) {
+            setPublishPreview(null);
+            setPublishDataPolicy(null);
+            setPublishPolicyError(null);
+          }
         }}
         onConfirm={executePublishPreview}
+        onAcknowledgePolicy={handlePublishPolicyAcknowledgement}
+        onRetryPolicy={() => {
+          if (selectedEvent?.id) void loadPublishDataPolicy(selectedEvent.id);
+        }}
       />
 
       {/* Edit Modal */}
