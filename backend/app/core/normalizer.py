@@ -555,8 +555,8 @@ def normalize_flow_input(
                                     'Floating Task',
                                 )
                                 if valid_person_ids:
-                                    preassigned_person_ids = valid_person_ids
-                                    debug_print(f"  Floating Task {task.id} - Found preassigned persons: {preassigned_person_ids}")
+                                    preassigned_person_ids.extend(valid_person_ids)
+                                    debug_print(f"  Floating Task {task.id} - Found preassigned persons: {valid_person_ids}")
                                 for warning in group_warnings:
                                     debug_print(f"  Floating Task {task.id} - WARNING: {warning}")
                             
@@ -656,8 +656,8 @@ def normalize_flow_input(
                                     'Task',
                                 )
                                 if valid_person_ids:
-                                    preassigned_person_ids = valid_person_ids
-                                    debug_print(f"  Task {task.id} - Found preassigned persons: {preassigned_person_ids}")
+                                    preassigned_person_ids.extend(valid_person_ids)
+                                    debug_print(f"  Task {task.id} - Found preassigned persons: {valid_person_ids}")
                                 for warning in group_warnings:
                                     debug_print(f"  Task {task.id} - WARNING: {warning}")
                             
