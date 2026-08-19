@@ -93,22 +93,7 @@ def test_publish_uses_one_wire_type_per_capability_field(db_session, monkeypatch
         },
         additional={"date": "2032-04-21"},
     )
-    unassigned = Task(
-        event_id=event.id,
-        task_template_id=template.id,
-        task_type_id=task_type.id,
-        title="Unassigned task",
-        constraints={
-            "start_time": 10 * 60,
-            "end_time": 11 * 60,
-            "field_values": {
-                "field_driver": [{"id": capability.id, "quantity": 2}],
-            },
-        },
-        final={"start_time": 10 * 60, "end_time": 11 * 60},
-        additional={"date": "2032-04-21"},
-    )
-    db_session.add_all([assigned, unassigned])
+    db_session.add(assigned)
     db_session.commit()
 
     captured = {}
@@ -119,7 +104,7 @@ def test_publish_uses_one_wire_type_per_capability_field(db_session, monkeypatch
 
         @staticmethod
         def json():
-            return {"tasks_created": 2, "persons_created": 1}
+            return {"tasks_created": 1, "persons_created": 1}
 
     class Client:
         def __init__(self, **_kwargs):
@@ -148,7 +133,7 @@ def test_publish_uses_one_wire_type_per_capability_field(db_session, monkeypatch
 
     result = asyncio.run(mp_backend.publish_to_mp_backend(event.id, None, db_session))
 
-    assert result.tasks_created == 2
+    assert result.tasks_created == 1
     published = {task["name"]: task for task in captured["payload"]["tasks"]}
     assigned_wire = published["Assigned task"]
     assert assigned_wire["field_values"] is None
@@ -156,7 +141,87 @@ def test_publish_uses_one_wire_type_per_capability_field(db_session, monkeypatch
         "field_driver": [{"name": "Synthetic Person", "person_id": person.id}],
     }
     assert assigned_wire["field_definitions"][0]["type"] == "persons_list"
-    unassigned_wire = published["Unassigned task"]
-    assert unassigned_wire["field_assignments"] is None
-    assert unassigned_wire["field_values"] == {"field_driver": ["Driver ×2"]}
-    assert unassigned_wire["field_definitions"][0]["type"] == "capabilities_list"
+
+
+def test_publish_rejects_incomplete_capability_allocation(db_session, monkeypatch):
+    event = Event(
+        name="Synthetic event",
+        start_date=date(2032, 4, 21),
+        end_date=date(2032, 4, 21),
+        meta_data={"schedule_day_range": {"startHour": 6, "endHour": 24}},
+    )
+    task_type = TaskType(name="Operational task", color="#123456")
+    capability = Capability(machine_name="orga", name="Orga")
+    db_session.add_all([event, task_type, capability])
+    db_session.flush()
+    template = TaskTemplate(
+        machine_name="transfer",
+        name="Transfer",
+        task_type_id=task_type.id,
+        fields=[
+            {"id": "front", "name": "Front-Orga", "type": "capabilities_list"},
+            {"id": "back", "name": "Back-Orga", "type": "capabilities_list"},
+        ],
+    )
+    person = Person(event_id=event.id, first_name="Synthetic", last_name="Person")
+    db_session.add_all([template, person])
+    db_session.flush()
+    task = Task(
+        event_id=event.id,
+        task_template_id=template.id,
+        task_type_id=task_type.id,
+        title="Incomplete transfer",
+        constraints={
+            "start_time": 9 * 60,
+            "end_time": 10 * 60,
+            "field_values": {
+                "front": [{"id": capability.id, "quantity": 1}],
+                "back": [{"id": capability.id, "quantity": 1}],
+            },
+        },
+        final={
+            "start_time": 9 * 60,
+            "end_time": 10 * 60,
+            "field_assignments": {"front": [person.id]},
+        },
+        additional={"date": "2032-04-21"},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    async def acknowledged(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        mp_backend,
+        "_get_connection",
+        lambda *_args: ("https://server.example", "synthetic-secret"),
+    )
+    monkeypatch.setattr(
+        mp_backend,
+        "_require_current_policy_acknowledgement",
+        acknowledged,
+    )
+
+    with pytest.raises(mp_backend.HTTPException) as exc_info:
+        asyncio.run(mp_backend.publish_to_mp_backend(event.id, None, db_session))
+
+    assert exc_info.value.status_code == 409
+    assert "Back-Orga" in str(exc_info.value.detail)
+    assert "Re-run optimisation" in str(exc_info.value.detail)
+
+    task.final = {
+        "start_time": 9 * 60,
+        "end_time": 10 * 60,
+        "field_assignments": {
+            "front": [person.id],
+            "back": [person.id],
+        },
+    }
+    db_session.commit()
+
+    with pytest.raises(mp_backend.HTTPException) as duplicate_exc:
+        asyncio.run(mp_backend.publish_to_mp_backend(event.id, None, db_session))
+
+    assert duplicate_exc.value.status_code == 409
+    assert "more than one allocation field" in str(duplicate_exc.value.detail)

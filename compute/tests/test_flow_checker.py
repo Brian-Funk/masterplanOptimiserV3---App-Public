@@ -1288,6 +1288,40 @@ def test_transfer_requires_capability_no_one_has():
     assert len(result) > 0, f"Expected infeasible (transfer capability missing), got no errors"
 
 
+def test_transfer_field_slots_require_distinct_eligible_people():
+    persons = [
+        NormPerson(id=1, home_location_id=1, capabilities=["front", "side"]),
+        NormPerson(id=2, home_location_id=1, capabilities=["side"]),
+        NormPerson(id=3, home_location_id=1, capabilities=["side"]),
+    ]
+    transfer = NormTransfer(
+        id=302,
+        from_location_id=1,
+        to_location_id=2,
+        depart_time=480,
+        arrive_time=540,
+        capacity=4,
+        requirements={"front": 1, "side": 3},
+        field_requirements={
+            "front_orga": {"front": 1},
+            "side_orga": {"side": 2},
+            "back_orga": {"side": 1},
+        },
+    )
+
+    errors = check_flow(NormalizedFlowInput(
+        persons=persons,
+        tasks=[],
+        transfers=[transfer],
+        errors=[],
+        floating_tasks=[],
+    ))
+
+    assert errors
+    assert "distinct eligible people" in errors[0]
+    assert "back_orga" in errors[0] or "side_orga" in errors[0]
+
+
 def test_two_transfers_overlap_in_time():
     """Test 14: Two transfers overlap in time - double-booking detection"""
     persons = [

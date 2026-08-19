@@ -27,6 +27,28 @@ interface OptimisedTaskEditModalProps {
   locations: Location[];
 }
 
+function requiredAllocationCount(
+  task: CalendarTask,
+  fieldId: string,
+): number | null {
+  const definition = (task.field_definitions || []).find(
+    (field) => field.id === fieldId,
+  );
+  if (definition?.type !== "capabilities_list") return null;
+  const value = task.fields?.[fieldId];
+  if (!Array.isArray(value)) return 0;
+  return value.reduce((total, item) => {
+    if (typeof item !== "object" || item === null) return total + 1;
+    const candidate = item as { quantity?: unknown; amount?: unknown };
+    const quantity = candidate.quantity ?? candidate.amount ?? 1;
+    return total + (
+      typeof quantity === "number" && Number.isInteger(quantity) && quantity > 0
+        ? quantity
+        : 0
+    );
+  }, 0);
+}
+
 export function OptimisedTaskEditModal({
   task,
   isOpen,
@@ -140,6 +162,14 @@ export function OptimisedTaskEditModal({
   const hasManualChange =
     manualSummaries.length > 0 || manualDetails.length > 0;
   const hasConflict = conflictCount > 0;
+  const allocationFields = (task.field_definitions || []).filter(
+    (field) =>
+      field.type === "capabilities_list" || field.type === "persons_list",
+  );
+  const hasStructuredAllocations = allocationFields.length > 0;
+  const allocatedPersonIds = new Set(
+    Object.values(fieldAssignments).flat(),
+  );
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -304,22 +334,17 @@ export function OptimisedTaskEditModal({
             <label className="block text-sm font-medium text-foreground-secondary mb-2">
               Assigned Persons
             </label>
-            {task.field_assignments &&
-            Object.keys(task.field_assignments).length > 0 ? (
+            {hasStructuredAllocations ? (
               // Per-field breakdown
               <div className="space-y-4">
-                {Object.entries(fieldAssignments).map(
-                  ([fieldId, personIds]) => {
-                    const fieldDef = (task.field_definitions || []).find(
-                      (f: any) => f.id === fieldId,
-                    );
-                    const fieldLabel =
-                      fieldDef?.name ||
-                      fieldId
-                        .replace(/^field_/, "")
-                        .replace(/_/g, " ")
-                        .replace(/\b\w/g, (c: string) => c.toUpperCase());
-                    const fieldPersonIds = personIds as number[];
+                {allocationFields.map((fieldDef) => {
+                    const fieldId = fieldDef.id;
+                    const fieldLabel = fieldDef.name;
+                    const fieldPersonIds = fieldAssignments[fieldId] || [];
+                    const requiredCount = requiredAllocationCount(task, fieldId);
+                    const isIncomplete =
+                      requiredCount !== null &&
+                      fieldPersonIds.length !== requiredCount;
                     return (
                       <div
                         key={fieldId}
@@ -333,7 +358,11 @@ export function OptimisedTaskEditModal({
                           availableResources={persons.map((p) => ({
                             id: p.id,
                             name: `${p.first_name} ${p.last_name}`,
-                          }))}
+                          })).filter(
+                            (person) =>
+                              fieldPersonIds.includes(person.id) ||
+                              !allocatedPersonIds.has(person.id),
+                          )}
                           availableGroups={[]}
                           selectedResources={fieldPersonIds
                             .map((personId) => {
@@ -352,6 +381,7 @@ export function OptimisedTaskEditModal({
                                 r !== null,
                             )}
                           onAdd={(resource) => {
+                            if (allocatedPersonIds.has(resource.id)) return;
                             setFieldAssignments((prev) => ({
                               ...prev,
                               [fieldId]: [
@@ -380,10 +410,16 @@ export function OptimisedTaskEditModal({
                           onItemHover={handleResourceHover}
                           onItemHoverEnd={handleResourceHoverEnd}
                         />
+                        {isIncomplete && (
+                          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+                            {requiredCount === 0
+                              ? "This allocation has no valid requirement. Re-run optimisation."
+                              : `Requires ${requiredCount} ${requiredCount === 1 ? "person" : "people"}; ${fieldPersonIds.length} assigned. Re-run optimisation before publishing.`}
+                          </p>
+                        )}
                       </div>
                     );
-                  },
-                )}
+                  })}
               </div>
             ) : (
               // Flat list (no field_assignments data)

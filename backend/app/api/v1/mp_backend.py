@@ -408,6 +408,29 @@ def _published_capability_labels(
     return labels
 
 
+def _published_capability_requirement_count(value: object) -> int:
+    """Return the exact number of distinct people required by a role field."""
+    if value in (None, "", []):
+        return 0
+    if not isinstance(value, list):
+        raise ValueError("A published capability field is not a list")
+    total = 0
+    for item in value:
+        quantity = (
+            item.get("quantity", item.get("amount", 1))
+            if isinstance(item, dict)
+            else 1
+        )
+        if (
+            not isinstance(quantity, int)
+            or isinstance(quantity, bool)
+            or quantity < 1
+        ):
+            raise ValueError("A published capability has an invalid quantity")
+        total += quantity
+    return total
+
+
 async def _flush_deletion_outbox(db: Session) -> int:
     """Send durable reports and clear their encrypted bearer material on success."""
 
@@ -1316,6 +1339,7 @@ async def publish_to_mp_backend(
         runtime_represented_person_ids: set[int] = set()
         runtime_excluded_person_ids: set[int] = set()
         structured_person_field_ids: set[str] = set()
+        capability_field_requirements: dict[str, tuple[str, int]] = {}
         tmpl = task_templates.get(task.task_template_id) if task.task_template_id else None
         if tmpl and tmpl.fields:
             field_assignments = {}
@@ -1391,16 +1415,24 @@ async def publish_to_mp_backend(
                     caps = raw_field_values.get(field_id, [])
                     if caps:
                         try:
-                            field_values_resolved[field_id] = _published_capability_labels(
+                            # Resolve the requirements for validation, but
+                            # never publish capability labels as a fallback for
+                            # a missing people allocation.
+                            _published_capability_labels(
                                 caps,
                                 capabilities_by_id,
                                 capabilities_by_machine_name,
                             )
+                            required_count = _published_capability_requirement_count(caps)
                         except ValueError as exc:
                             raise HTTPException(
                                 status_code=409,
                                 detail=f"Field {field_name}: {exc}",
                             ) from exc
+                        capability_field_requirements[field_id] = (
+                            field_name,
+                            required_count,
+                        )
 
                 elif field_type == "location":
                     loc_val = raw_field_values.get(field_id)
@@ -1483,6 +1515,57 @@ async def publish_to_mp_backend(
                             field_values_resolved.pop(fa_field_id, None)
                         else:
                             field_assignments.pop(fa_field_id, None)
+
+            definition_indices = {
+                definition["id"]: index
+                for index, definition in enumerate(field_definitions_out)
+            }
+            omitted_capability_fields: set[str] = set()
+            for field_id, (
+                field_name,
+                required_count,
+            ) in capability_field_requirements.items():
+                if required_count == 0:
+                    omitted_capability_fields.add(field_id)
+                    continue
+                assigned_people = field_assignments.get(field_id, [])
+                if len(assigned_people) != required_count:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Task '{task.title}' on {working_date}: allocation field "
+                            f"'{field_name}' requires {required_count} assigned "
+                            f"people but has {len(assigned_people)}. Re-run optimisation "
+                            "for this day before publishing."
+                        ),
+                    )
+                definition_index = definition_indices.get(field_id)
+                if definition_index is not None:
+                    field_definitions_out[definition_index]["type"] = "persons_list"
+                field_values_resolved.pop(field_id, None)
+
+            if omitted_capability_fields:
+                field_definitions_out = [
+                    definition
+                    for definition in field_definitions_out
+                    if definition["id"] not in omitted_capability_fields
+                ]
+
+            allocation_owner: dict[int, str] = {}
+            for field_id, assigned_people in field_assignments.items():
+                for assigned_person in assigned_people:
+                    person_id = int(assigned_person["person_id"])
+                    previous_field = allocation_owner.get(person_id)
+                    if previous_field is not None and previous_field != field_id:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Task '{task.title}' on {working_date}: one person is "
+                                "assigned to more than one allocation field. Re-run "
+                                "optimisation for this day before publishing."
+                            ),
+                        )
+                    allocation_owner[person_id] = field_id
 
         effective_field_person_ids: set[int] = set()
         attendees_by_id: dict[int, dict[str, object]] = {}

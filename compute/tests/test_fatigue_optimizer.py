@@ -5087,6 +5087,116 @@ def test_task_field_assignments_multi_capability_fields():
     assert fa.get("field_driver") == [2], f"Expected field_driver=[2], got {fa.get('field_driver')}"
 
 
+def test_transfer_roles_are_distinct_when_one_person_has_both_capabilities():
+    persons = [
+        NormPerson(id=1, home_location_id=1, capabilities=["front", "side"]),
+        NormPerson(id=2, home_location_id=1, capabilities=["side"]),
+        NormPerson(id=3, home_location_id=1, capabilities=["side"]),
+        NormPerson(id=4, home_location_id=1, capabilities=["side"]),
+    ]
+    transfer = NormTransfer(
+        id=301,
+        from_location_id=1,
+        to_location_id=2,
+        depart_time=480,
+        arrive_time=540,
+        capacity=4,
+        requirements={"front": 1, "side": 3},
+        field_requirements={
+            "front_orga": {"front": 1},
+            "side_orga": {"side": 2},
+            "back_orga": {"side": 1},
+        },
+    )
+    result = optimize_with_fatigue(
+        NormalizedFlowInput(
+            persons=persons,
+            tasks=[],
+            transfers=[transfer],
+            errors=[],
+            floating_tasks=[],
+        ),
+        config=OptimizationConfig(max_time_seconds=10.0),
+    )
+
+    assert result.status in ("OPTIMAL", "FEASIBLE")
+    fields = result.field_assignments[301]
+    assert len(fields["front_orga"]) == 1
+    assert len(fields["side_orga"]) == 2
+    assert len(fields["back_orga"]) == 1
+    assert len({pid for assigned in fields.values() for pid in assigned}) == 4
+    assert fields["front_orga"] == [1]
+
+
+def test_regular_repeated_capability_is_partitioned_between_fields():
+    persons = [
+        NormPerson(id=1, home_location_id=1, capabilities=["orga"]),
+        NormPerson(id=2, home_location_id=1, capabilities=["orga"]),
+        NormPerson(id=3, home_location_id=1, capabilities=["orga"]),
+    ]
+    task = NormTask(
+        id=101,
+        name="Repeated role",
+        location_id=1,
+        start_time=480,
+        end_time=540,
+        requirements={"orga": 3},
+        field_requirements={
+            "side_orga": {"orga": 2},
+            "back_orga": {"orga": 1},
+        },
+    )
+    result = optimize_with_fatigue(
+        NormalizedFlowInput(
+            persons=persons,
+            tasks=[task],
+            transfers=[],
+            errors=[],
+            floating_tasks=[],
+        ),
+        config=OptimizationConfig(max_time_seconds=10.0),
+    )
+
+    assert result.status in ("OPTIMAL", "FEASIBLE")
+    fields = result.field_assignments[101]
+    assert len(fields["side_orga"]) == 2
+    assert len(fields["back_orga"]) == 1
+    assert set(fields["side_orga"]).isdisjoint(fields["back_orga"])
+
+
+def test_direct_transfer_passenger_does_not_fill_a_capability_role():
+    persons = [
+        NormPerson(id=1, home_location_id=1, capabilities=["orga"]),
+        NormPerson(id=2, home_location_id=1, capabilities=["orga"]),
+    ]
+    transfer = NormTransfer(
+        id=303,
+        from_location_id=1,
+        to_location_id=2,
+        depart_time=480,
+        arrive_time=540,
+        capacity=2,
+        requirements={"orga": 1},
+        field_requirements={"front_orga": {"orga": 1}},
+        locked_person_ids=[1],
+        person_field_assignments={"passengers": [1]},
+    )
+    result = optimize_with_fatigue(
+        NormalizedFlowInput(
+            persons=persons,
+            tasks=[],
+            transfers=[transfer],
+            errors=[],
+            floating_tasks=[],
+        ),
+        config=OptimizationConfig(max_time_seconds=10.0),
+    )
+
+    assert result.status in ("OPTIMAL", "FEASIBLE")
+    assert result.field_assignments[303]["passengers"] == [1]
+    assert result.field_assignments[303]["front_orga"] == [2]
+
+
 def test_transfer_no_field_requirements_no_field_assignments():
     """
     Transfer without field_requirements → field_assignments should be empty for that transfer.

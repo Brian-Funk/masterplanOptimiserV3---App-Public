@@ -21,6 +21,10 @@
 
 - Publish capability and assigned-participant custom fields through their
   bounded Server wire types instead of rejecting valid Masterplan data.
+- Assign distinct people to every named capability role, including repeated
+  requirements on transfers, and preserve each field in optimisation results.
+- Block publishing stale incomplete role assignments instead of exposing raw
+  capability requirements or silently omitting a required field.
 - Correct shareable-export vocabulary detection, remove metadata timestamps
   from shareable packages and avoid deletion polling for unlinked projects.
 

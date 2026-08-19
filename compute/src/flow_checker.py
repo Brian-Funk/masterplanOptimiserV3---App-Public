@@ -9,7 +9,7 @@ This module checks if tasks can be feasibly assigned given:
 Uses Google OR-Tools CP-SAT solver to determine satisfiability.
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from ortools.sat.python import cp_model
 
@@ -132,6 +132,45 @@ class TimeSegment:
     end_time: int    # minutes since midnight
     task_indices: List[int]  # indices of tasks active in this segment
     transfer_indices: List[int]  # indices of transfers active in this segment
+
+
+def _unmatched_transfer_role_slots(
+    transfer: NormTransfer,
+    persons: List[NormPerson],
+) -> List[Tuple[str, str]]:
+    """Return required allocation slots lacking distinct eligible people."""
+    locked_person_ids = set(getattr(transfer, "locked_person_ids", []))
+    slots: List[Tuple[str, str]] = []
+    for field_id, field_caps in getattr(
+        transfer, "field_requirements", {}
+    ).items():
+        for cap_name, count in field_caps.items():
+            slots.extend((field_id, cap_name) for _ in range(max(0, count)))
+
+    matched_person_to_slot: Dict[int, int] = {}
+
+    def assign(slot_index: int, visited: Set[int]) -> bool:
+        _field_id, cap_name = slots[slot_index]
+        for person in persons:
+            if (
+                person.id in locked_person_ids
+                or person.id in visited
+                or cap_name not in person.capabilities
+            ):
+                continue
+            visited.add(person.id)
+            previous_slot = matched_person_to_slot.get(person.id)
+            if previous_slot is None or assign(previous_slot, visited):
+                matched_person_to_slot[person.id] = slot_index
+                return True
+        return False
+
+    matched_slots = {
+        slot_index
+        for slot_index in range(len(slots))
+        if assign(slot_index, set())
+    }
+    return [slot for index, slot in enumerate(slots) if index not in matched_slots]
 
 
 def generate_time_segments(
@@ -303,6 +342,20 @@ def check_flow(
             "invalid_input",
             preflight,
         )
+
+    for transfer in transfers:
+        unmatched_slots = _unmatched_transfer_role_slots(transfer, persons)
+        if unmatched_slots:
+            missing = ", ".join(
+                f"{field_id} ({cap_name})"
+                for field_id, cap_name in unmatched_slots
+            )
+            message = (
+                f"Transfer {transfer.id} cannot assign distinct eligible people "
+                f"to every allocation field; missing: {missing}"
+            )
+            issue = legacy_message_issue(message, normalized_input)
+            return result([message], "invalid_input", [issue])
     
     if not tasks and not transfers and not floating_tasks:
         return result([], "feasible", [])  # Nothing to check
@@ -514,6 +567,25 @@ def check_flow(
     for p in range(num_persons):
         for k in range(num_transfers):
             y[p, k] = model.NewBoolVar(f'y_p{p}_k{k}')
+
+    transfer_role = {}
+    for k, transfer in enumerate(transfers):
+        locked_person_ids = set(getattr(transfer, "locked_person_ids", []))
+        for field_id, field_caps in getattr(
+            transfer, "field_requirements", {}
+        ).items():
+            for cap_name, count in field_caps.items():
+                if count <= 0:
+                    continue
+                for p, person in enumerate(persons):
+                    if (
+                        person.id in locked_person_ids
+                        or cap_name not in person.capabilities
+                    ):
+                        continue
+                    transfer_role[p, k, field_id, cap_name] = model.NewBoolVar(
+                        f'transfer_role_p{p}_k{k}_{field_id}_{cap_name}'
+                    )
     
     # task_fully_covered[t]: task t has all capability requirements satisfied
     task_fully_covered = []
@@ -741,20 +813,43 @@ def check_flow(
         if transfer.capacity is not None and transfer.capacity < 999:
             model.Add(sum(y[p, k] for p in range(num_persons)) <= transfer.capacity)
         
-        # Required capability constraints - only need 'count' people with each capability
-        # The rest can be anyone (dynamic allocation slots)
-        for cap_name, count in transfer.requirements.items():
-            if cap_name in capability_to_idx:
-                # Count how many people boarding have this capability
-                people_with_cap = []
-                for p in range(num_persons):
-                    person = persons[p]
-                    if cap_name in person.capabilities:
-                        people_with_cap.append(p)
-                
-                # At least 'count' people with this capability must board
-                if people_with_cap:
-                    model.Add(sum(y[p, k] for p in people_with_cap) >= count)
+        field_requirements = getattr(transfer, "field_requirements", {})
+        if field_requirements:
+            for field_id, field_caps in field_requirements.items():
+                for cap_name, count in field_caps.items():
+                    if count <= 0:
+                        continue
+                    slot_vars = [
+                        var
+                        for (p_idx, transfer_idx, role_field_id, role_cap), var
+                        in transfer_role.items()
+                        if transfer_idx == k
+                        and role_field_id == field_id
+                        and role_cap == cap_name
+                    ]
+                    model.Add(sum(slot_vars) == count)
+                    for p in range(num_persons):
+                        role_var = transfer_role.get((p, k, field_id, cap_name))
+                        if role_var is not None:
+                            model.Add(role_var <= y[p, k])
+            for p in range(num_persons):
+                person_roles = [
+                    var
+                    for (p_idx, transfer_idx, _field_id, _cap), var
+                    in transfer_role.items()
+                    if p_idx == p and transfer_idx == k
+                ]
+                if person_roles:
+                    model.Add(sum(person_roles) <= 1)
+        else:
+            for cap_name, count in transfer.requirements.items():
+                if cap_name in capability_to_idx:
+                    people_with_cap = [
+                        p for p in range(num_persons)
+                        if cap_name in persons[p].capabilities
+                    ]
+                    if people_with_cap:
+                        model.Add(sum(y[p, k] for p in people_with_cap) >= count)
     print("[OK] 4.5 Transfer capacity and requirements")
     
     # 4.6 Task feasibility
@@ -875,8 +970,11 @@ def check_flow(
             if t not in task_to_floating:
                 model.Add(task_fully_covered[t] == 1)
     
-    # Transfer capability requirements (hard constraints - transfers must be fully staffed)
+    # Legacy transfer capability requirements. Structured transfers are
+    # already constrained by exact distinct field-level slots above.
     for k_idx, transfer in enumerate(transfers):
+        if getattr(transfer, "field_requirements", {}):
+            continue
         for cap_name, required_count_val in transfer.requirements.items():
             if cap_name in capability_to_idx and required_count_val > 0:
                 # Count persons with this capability who use the transfer
