@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/Spinner";
+import type { MpBackendDataPolicy } from "@/lib/api";
 import type {
   DayPublishPreview,
   PublishPreview,
@@ -15,8 +16,15 @@ export interface PublishPreviewModalProps {
   open: boolean;
   preview: PublishPreview | null;
   publishing?: boolean;
+  policyRequired?: boolean;
+  dataPolicy?: MpBackendDataPolicy | null;
+  policyLoading?: boolean;
+  policyError?: string | null;
+  acknowledgingPolicy?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  onAcknowledgePolicy?: () => void;
+  onRetryPolicy?: () => void;
 }
 
 const statusTone: Record<
@@ -70,18 +78,28 @@ export function PublishPreviewModal({
   open,
   preview,
   publishing = false,
+  policyRequired = false,
+  dataPolicy = null,
+  policyLoading = false,
+  policyError = null,
+  acknowledgingPolicy = false,
   onCancel,
   onConfirm,
+  onAcknowledgePolicy,
+  onRetryPolicy,
 }: PublishPreviewModalProps) {
   const [showDetails, setShowDetails] = useState(true);
+  const policyBlocked =
+    policyRequired &&
+    (policyLoading || Boolean(policyError) || !dataPolicy?.acknowledged);
   const hasBlockingReasons = Boolean(preview?.blockingReasons.length);
-  const hasWarnings = Boolean(preview?.warnings.length);
-  const HeaderIcon = hasBlockingReasons
+  const hasWarnings = Boolean(preview?.warnings.length) || policyBlocked;
+  const HeaderIcon = hasBlockingReasons || policyError
     ? XCircle
     : hasWarnings
       ? AlertTriangle
       : CheckCircle2;
-  const headerTone = hasBlockingReasons
+  const headerTone = hasBlockingReasons || policyError
     ? "text-red-600 dark:text-red-300"
     : hasWarnings
       ? "text-amber-600 dark:text-amber-300"
@@ -126,6 +144,77 @@ export function PublishPreviewModal({
               />
             )}
 
+            {policyRequired && (
+              <section className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                <h3 className="font-semibold">Server permitted-data policy</h3>
+                {policyLoading ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Spinner size="sm" />
+                    Verifying the current exact policy...
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {policyError && (
+                      <p className="text-red-700 dark:text-red-300" role="alert">
+                        {policyError}
+                      </p>
+                    )}
+                    {dataPolicy ? (
+                      <>
+                        <p>
+                          {dataPolicy.purpose ||
+                            "Review the data permitted for this Server publication."}
+                        </p>
+                        <p className="break-all font-mono text-xs">
+                          Version {dataPolicy.policy_version}; SHA-256 {dataPolicy.policy_sha256}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <a
+                            className="underline"
+                            href={dataPolicy.policy_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open permanent exact policy
+                          </a>
+                          {dataPolicy.acknowledged && !policyError ? (
+                            <span className="font-medium text-green-700 dark:text-green-300">
+                              Acknowledged by this pseudonymous Desktop installation
+                            </span>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              onClick={onAcknowledgePolicy}
+                              disabled={acknowledgingPolicy || !onAcknowledgePolicy}
+                            >
+                              {acknowledgingPolicy
+                                ? "Recording..."
+                                : "I reviewed necessity and permitted audiences"}
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3">
+                        {!policyError && (
+                          <p className="text-red-700 dark:text-red-300" role="alert">
+                            The current Server permitted-data policy is unavailable.
+                          </p>
+                        )}
+                        <Button
+                          variant="outline"
+                          onClick={onRetryPolicy}
+                          disabled={!onRetryPolicy}
+                        >
+                          Retry policy check
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
             <section>
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-foreground">
@@ -161,7 +250,7 @@ export function PublishPreviewModal({
           </Button>
           <Button
             onClick={onConfirm}
-            disabled={!preview?.canPublish || publishing}
+            disabled={!preview?.canPublish || publishing || policyBlocked}
           >
             {publishing ? (
               <>

@@ -32,6 +32,95 @@ async function apiFetch(
   return fetch(url, options);
 }
 
+const MAX_API_ERROR_MESSAGE_LENGTH = 1000;
+
+function boundedApiMessage(value: string): string {
+  return value.trim().slice(0, MAX_API_ERROR_MESSAGE_LENGTH);
+}
+
+/** Convert FastAPI error bodies into a bounded, human-readable message. */
+export function formatApiErrorMessage(
+  payload: unknown,
+  fallback: string,
+): string {
+  const body =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : null;
+  const detail = body?.detail;
+
+  if (typeof detail === "string" && detail.trim()) {
+    return boundedApiMessage(detail);
+  }
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const message = (detail as Record<string, unknown>).message;
+    if (typeof message === "string" && message.trim()) {
+      return boundedApiMessage(message);
+    }
+  }
+  if (Array.isArray(detail)) {
+    const messages = detail.slice(0, 10).flatMap((issue) => {
+      if (!issue || typeof issue !== "object") return [];
+      const record = issue as Record<string, unknown>;
+      if (typeof record.msg !== "string" || !record.msg.trim()) return [];
+      const location = Array.isArray(record.loc)
+        ? record.loc
+            .filter((part) => ["string", "number"].includes(typeof part))
+            .map(String)
+            .join(".")
+        : "";
+      return [`${location ? `${location}: ` : ""}${record.msg}`];
+    });
+    if (messages.length > 0) {
+      return boundedApiMessage(messages.join("; "));
+    }
+  }
+  if (typeof body?.message === "string" && body.message.trim()) {
+    return boundedApiMessage(body.message);
+  }
+  return boundedApiMessage(fallback) || "The request failed.";
+}
+
+function apiStatusFallback(response: Response, action: string): string {
+  const status = response.status ? `HTTP ${response.status}` : "request failed";
+  const statusText = response.statusText?.trim();
+  return `${action} (${status}${statusText ? ` ${statusText}` : ""})`;
+}
+
+/** HTTP failure with the bounded Server code needed for recoverable UI flows. */
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function apiRequestError(
+  payload: unknown,
+  response: Response,
+  action: string,
+): ApiRequestError {
+  const body =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : null;
+  const detail =
+    body?.detail && typeof body.detail === "object" && !Array.isArray(body.detail)
+      ? (body.detail as Record<string, unknown>)
+      : null;
+  const code = typeof detail?.code === "string" ? detail.code.slice(0, 100) : null;
+  return new ApiRequestError(
+    formatApiErrorMessage(payload, apiStatusFallback(response, action)),
+    response.status,
+    code,
+  );
+}
+
 export interface Event {
   id: number;
   name: string;
@@ -2634,7 +2723,12 @@ export const mpBackendApi = {
     );
     if (!response.ok) {
       const error = await response.json().catch(() => null);
-      throw new Error(error?.detail || "Failed to load the Server permitted-data policy");
+      throw new Error(
+        formatApiErrorMessage(
+          error,
+          apiStatusFallback(response, "Failed to load the Server permitted-data policy"),
+        ),
+      );
     }
     return response.json();
   },
@@ -2658,7 +2752,12 @@ export const mpBackendApi = {
     );
     if (!response.ok) {
       const error = await response.json().catch(() => null);
-      throw new Error(error?.detail || "Failed to acknowledge the Server permitted-data policy");
+      throw new Error(
+        formatApiErrorMessage(
+          error,
+          apiStatusFallback(response, "Failed to acknowledge the Server permitted-data policy"),
+        ),
+      );
     }
   },
 
@@ -2791,9 +2890,7 @@ export const mpBackendApi = {
     );
     if (!response.ok) {
       const err = await response.json().catch(() => null);
-      throw new Error(
-        err?.detail || `Failed to publish: ${response.statusText}`,
-      );
+      throw apiRequestError(err, response, "Failed to publish");
     }
     return response.json();
   },
@@ -2814,7 +2911,10 @@ export const mpBackendApi = {
     if (!response.ok) {
       const err = await response.json().catch(() => null);
       throw new Error(
-        err?.detail || `Failed to publish General Schedule: ${response.statusText}`,
+        formatApiErrorMessage(
+          err,
+          apiStatusFallback(response, "Failed to publish General Schedule"),
+        ),
       );
     }
     return response.json();

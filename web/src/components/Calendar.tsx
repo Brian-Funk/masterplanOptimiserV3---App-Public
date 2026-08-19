@@ -656,6 +656,7 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
   // Build individual person elements if person data is available
   // When field_assignments exist, group persons by field name for display
   const fieldGroupedPersonElements: Array<{
+    fieldId: string;
     fieldLabel: string;
     persons: Array<{
       personId: number;
@@ -711,6 +712,7 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
             });
             const allPersons = [...activePersons, ...excludedPersons];
             return {
+              fieldId,
               fieldLabel,
               persons: allPersons.map((person, idx) => ({
                 ...person,
@@ -1049,7 +1051,7 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
             <div className="text-xs text-foreground-secondary mt-0.5 space-y-0.5 overflow-hidden">
               {effectiveFieldGrouped.map((group) => (
                 <div
-                  key={group.fieldLabel}
+                  key={group.fieldId}
                   className="flex flex-wrap gap-x-1 truncate"
                 >
                   <span className="font-semibold text-foreground-muted flex-shrink-0">
@@ -1059,7 +1061,7 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
                     ({ personId, name, isLast, excluded, tooltip }, idx) => {
                       const content = (
                         <span
-                          key={`${personId}-${idx}`}
+                          key={`${group.fieldId}-${personId}-${idx}`}
                           className={
                             excluded
                               ? "cursor-default text-red-600 line-through opacity-75 dark:text-red-400"
@@ -1083,7 +1085,7 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
                       );
                       return excluded && tooltip ? (
                         <Tooltip
-                          key={`${personId}-${idx}-tooltip`}
+                          key={`${group.fieldId}-${personId}-${idx}-tooltip`}
                           content={tooltip}
                           side="top"
                         >

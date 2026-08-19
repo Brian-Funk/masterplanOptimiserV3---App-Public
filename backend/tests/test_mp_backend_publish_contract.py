@@ -225,3 +225,144 @@ def test_publish_rejects_incomplete_capability_allocation(db_session, monkeypatc
 
     assert duplicate_exc.value.status_code == 409
     assert "more than one allocation field" in str(duplicate_exc.value.detail)
+
+
+def test_publish_converts_concrete_transferees_to_bounded_people(db_session, monkeypatch):
+    event = Event(
+        name="Synthetic transfer event",
+        start_date=date(2032, 4, 21),
+        end_date=date(2032, 4, 21),
+        meta_data={"schedule_day_range": {"startHour": 6, "endHour": 24}},
+    )
+    task_type = TaskType(name="Transfer", color="#123456")
+    front_capability = Capability(machine_name="front_orga", name="Front-Orga")
+    side_capability = Capability(machine_name="side_orga", name="Side-Orga")
+    db_session.add_all([event, task_type, front_capability, side_capability])
+    db_session.flush()
+    template = TaskTemplate(
+        machine_name="transfer",
+        name="Transfer",
+        task_type_id=task_type.id,
+        fields=[
+            {"id": "people_transferee", "name": "Transferee", "type": "transferee"},
+            {"id": "text_transferee", "name": "Transferee", "type": "text"},
+            {"id": "front", "name": "Front-Orga", "type": "capabilities_list"},
+            {"id": "side", "name": "Side-Orga", "type": "capabilities_list"},
+            {"id": "back", "name": "Back-Orga", "type": "capabilities_list"},
+            {
+                "id": "dynamic_limit",
+                "name": "Dynamic allocation limit",
+                "type": "dynamic_transfer_allocation",
+            },
+        ],
+    )
+    people = [
+        Person(event_id=event.id, first_name="Synthetic", last_name=f"Person {index}")
+        for index in range(1, 7)
+    ]
+    db_session.add_all([template, *people])
+    db_session.flush()
+    task = Task(
+        event_id=event.id,
+        task_template_id=template.id,
+        task_type_id=task_type.id,
+        title="Pilatus Transfer",
+        constraints={
+            "start_time": 20 * 60 + 5,
+            "end_time": 20 * 60 + 40,
+            "field_values": {
+                "people_transferee": [people[0].id, people[1].id],
+                "text_transferee": "Synthetic delegations",
+                "front": [{"id": front_capability.id, "quantity": 1}],
+                "side": [{"id": side_capability.id, "quantity": 2}],
+                "back": [{"id": side_capability.id, "quantity": 1}],
+                "dynamic_limit": 4,
+            },
+        },
+        final={
+            "start_time": 20 * 60 + 5,
+            "end_time": 20 * 60 + 40,
+            "field_assignments": {
+                "people_transferee": [people[0].id, people[1].id],
+                "front": [people[2].id],
+                "side": [people[3].id, people[4].id],
+                "back": [people[5].id],
+            },
+        },
+        additional={"date": "2032-04-21"},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"tasks_created": 1, "persons_created": len(people)}
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return Response()
+
+    async def acknowledged(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        mp_backend,
+        "_get_connection",
+        lambda *_args: ("https://server.example", "synthetic-secret"),
+    )
+    monkeypatch.setattr(
+        mp_backend,
+        "_require_current_policy_acknowledgement",
+        acknowledged,
+    )
+    monkeypatch.setattr(mp_backend.httpx, "AsyncClient", Client)
+
+    result = asyncio.run(mp_backend.publish_to_mp_backend(event.id, None, db_session))
+
+    assert result.tasks_created == 1
+    published = captured["payload"]["tasks"][0]
+    definitions = published["field_definitions"]
+    assert [definition["id"] for definition in definitions] == [
+        "people_transferee",
+        "text_transferee",
+        "front",
+        "side",
+        "back",
+    ]
+    assert [definition["type"] for definition in definitions] == [
+        "persons_list",
+        "text",
+        "persons_list",
+        "persons_list",
+        "persons_list",
+    ]
+    assert published["field_values"] == {"text_transferee": "Synthetic delegations"}
+    assert {
+        field_id: [person["person_id"] for person in assigned_people]
+        for field_id, assigned_people in published["field_assignments"].items()
+    } == {
+        "people_transferee": [people[0].id, people[1].id],
+        "front": [people[2].id],
+        "side": [people[3].id, people[4].id],
+        "back": [people[5].id],
+    }
+    assert all(
+        definition["type"] not in {"transferee", "dynamic_transfer_allocation", "capabilities_list"}
+        for definition in definitions
+    )
