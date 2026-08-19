@@ -387,6 +387,28 @@ def optimize_with_fatigue(
     for p in range(num_persons):
         for k in range(num_transfers):
             y[p, k] = model.NewBoolVar(f'y_p{p}_k{k}')
+
+    # A boarding variable cannot prove which named allocation role a person
+    # fills. Model every published transfer field explicitly so one
+    # multi-capability person cannot satisfy two fields at once.
+    transfer_role = {}
+    for k, transfer in enumerate(transfers):
+        locked_person_ids = set(getattr(transfer, "locked_person_ids", []))
+        for field_id, field_caps in getattr(
+            transfer, "field_requirements", {}
+        ).items():
+            for cap_name, count in field_caps.items():
+                if count <= 0:
+                    continue
+                for p, person in enumerate(persons):
+                    if (
+                        person.id in locked_person_ids
+                        or cap_name not in person.capabilities
+                    ):
+                        continue
+                    transfer_role[p, k, field_id, cap_name] = model.NewBoolVar(
+                        f'transfer_role_p{p}_k{k}_{field_id}_{cap_name}'
+                    )
     
     task_fully_covered = []  # task_fully_covered[t]: task t has all requirements satisfied
     for t in range(num_tasks):
@@ -601,11 +623,45 @@ def optimize_with_fatigue(
         if hasattr(transfer, 'capacity') and transfer.capacity is not None and transfer.capacity < 999:
             model.Add(sum(y[p, k] for p in range(num_persons)) <= transfer.capacity)
         
-        for cap_name, count in transfer.requirements.items():
-            if cap_name in capability_to_idx and count > 0:
-                people_with_cap = [p for p in range(num_persons) if cap_name in persons[p].capabilities]
-                if people_with_cap:
-                    model.Add(sum(y[p, k] for p in people_with_cap) >= count)
+        field_requirements = getattr(transfer, "field_requirements", {})
+        if field_requirements:
+            for field_id, field_caps in field_requirements.items():
+                for cap_name, count in field_caps.items():
+                    if count <= 0:
+                        continue
+                    slot_vars = [
+                        var
+                        for (p_idx, transfer_idx, role_field_id, role_cap), var
+                        in transfer_role.items()
+                        if transfer_idx == k
+                        and role_field_id == field_id
+                        and role_cap == cap_name
+                    ]
+                    model.Add(sum(slot_vars) == count)
+                    for p in range(num_persons):
+                        role_var = transfer_role.get((p, k, field_id, cap_name))
+                        if role_var is not None:
+                            model.Add(role_var <= y[p, k])
+            for p in range(num_persons):
+                person_roles = [
+                    var
+                    for (p_idx, transfer_idx, _field_id, _cap), var
+                    in transfer_role.items()
+                    if p_idx == p and transfer_idx == k
+                ]
+                if person_roles:
+                    model.Add(sum(person_roles) <= 1)
+        else:
+            # Compatibility for historical normalised inputs without
+            # per-field allocation requirements.
+            for cap_name, count in transfer.requirements.items():
+                if cap_name in capability_to_idx and count > 0:
+                    people_with_cap = [
+                        p for p in range(num_persons)
+                        if cap_name in persons[p].capabilities
+                    ]
+                    if people_with_cap:
+                        model.Add(sum(y[p, k] for p in people_with_cap) >= count)
     print("[OK] Transfer capacity")
     
     # === TASK FEASIBILITY ===
@@ -1250,22 +1306,23 @@ def optimize_with_fatigue(
     # Maps task/transfer id -> {field_id -> [person_ids]}
     field_assignments = {}
     
-    # Build person capabilities lookup
-    person_caps_map = {person.id: set(person.capabilities) for person in persons}
-    
     # Field assignments for regular tasks (using capability_assignments from x variables)
     for t_idx, task in enumerate(tasks):
         if not getattr(task, 'field_requirements', None):
             continue
         task_field_map = {}
         assigned_to_field = set()
+        capability_offsets: Dict[str, int] = {}
         
         for field_id, field_caps in task.field_requirements.items():
             field_persons = []
             for cap_name, count in field_caps.items():
                 # Get persons assigned to this capability for this task via x[p,t,c]
                 cap_persons = capability_assignments.get((task.id, cap_name), [])
-                for pid in cap_persons:
+                start = capability_offsets.get(cap_name, 0)
+                selected = cap_persons[start:start + count]
+                capability_offsets[cap_name] = start + count
+                for pid in selected:
                     if pid not in assigned_to_field:
                         field_persons.append(pid)
                         assigned_to_field.add(pid)
@@ -1281,7 +1338,9 @@ def optimize_with_fatigue(
         if task_field_map:
             field_assignments[task.id] = task_field_map
     
-    # Field assignments for transfers (using y variables + greedy capability matching)
+    # Field assignments for transfers use the solved field-level role
+    # variables. This cannot silently drop a later field when one person has
+    # multiple capabilities.
     for k, transfer in enumerate(transfers):
         boarding = transfer_assignments.get(transfer.id, [])
         if not boarding:
@@ -1305,17 +1364,15 @@ def optimize_with_fatigue(
                 transfer_field_map[field_id] = direct_persons
                 assigned_to_field.update(direct_persons)
         
-        # First pass: assign boarding persons to capability-required fields
+        # Assign the exact solved capability roles.
         for field_id, field_caps in transfer.field_requirements.items():
             field_persons = []
             for cap_name, count in field_caps.items():
-                # Find boarding persons with this capability (not yet assigned to a field)
-                qualified = [pid for pid in boarding
-                             if pid not in assigned_to_field
-                             and cap_name in person_caps_map.get(pid, set())]
-                for pid in qualified[:count]:
-                    field_persons.append(pid)
-                    assigned_to_field.add(pid)
+                for p_idx, person in enumerate(persons):
+                    role_var = transfer_role.get((p_idx, k, field_id, cap_name))
+                    if role_var is not None and solver.Value(role_var) == 1:
+                        field_persons.append(person.id)
+                        assigned_to_field.add(person.id)
             if field_persons:
                 transfer_field_map[field_id] = field_persons
         
