@@ -47,7 +47,10 @@ import {
   getPublishTargetsLabel,
   hasPublishDestination,
 } from "@/lib/publishTargets";
-import { exportSchedulePdf } from "@/lib/pdfExport";
+import {
+  cancelActiveSchedulePdfExport,
+  exportSchedulePdf,
+} from "@/lib/pdfExport";
 
 export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
   const { addToast } = useToast();
@@ -73,6 +76,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
     personName: string;
   } | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [pdfExportProgress, setPdfExportProgress] = useState("");
   const [publishTarget, setPublishTarget] = useState<PublishTarget>([]);
   const [eventStatus, setEventStatus] = useState<string>(
     selectedEvent?.status || "draft",
@@ -510,6 +514,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
       let gcEventsCreated = 0;
 
       if (hasPublishDestination(target, "pdf")) {
+        setPdfExportProgress("Preparing PDF export");
         const settings = await eventsApi.getPdfExportSettings(selectedEvent.id);
         const eventDates: string[] = [];
         const cursor = new Date(`${selectedEvent.start_date}T00:00:00`);
@@ -537,8 +542,9 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
               isTaskInWorkingDay(task, date, scheduleDayBoundary),
             ),
           })),
-        });
+        }, (status) => setPdfExportProgress(status.message));
         pdfFileName = result.fileName;
+        setPdfExportProgress("");
       }
 
       // Publish to Google Calendar (if target includes it)
@@ -608,6 +614,10 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
         mpBackendPublished ? "MP-Backend" : "",
       ].filter(Boolean);
       const failure = error instanceof Error ? error.message : "Unknown error";
+      if (failure === "The PDF export was cancelled.") {
+        addToast("PDF export cancelled.", "info");
+        return;
+      }
       addToast(
         completed.length
           ? `Publish partially completed. ${completed.join(", ")} succeeded. Failed: ${failure}`
@@ -615,6 +625,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
         "error",
       );
     } finally {
+      setPdfExportProgress("");
       setIsPublishing(false);
     }
   };
@@ -682,21 +693,37 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
         </div>
 
         <div className="flex items-center gap-2">
+          {pdfExportProgress && (
+            <span className="text-xs text-foreground-muted" role="status">
+              {pdfExportProgress}
+            </span>
+          )}
           {/* Publish button - available when optimised, finalised, or already published (re-publish) */}
           {(eventStatus === "finalised" ||
             eventStatus === "optimised" ||
             eventStatus === "published") && (
             <Tooltip content={`Publish to ${publishTargetLabel}`} side="bottom">
               <button
-                onClick={handlePublish}
-                disabled={isPublishing || !hasAnyTasks}
+                onClick={() => {
+                  if (isPublishing && pdfExportProgress) {
+                    setPdfExportProgress("Cancelling PDF export");
+                    void cancelActiveSchedulePdfExport();
+                    return;
+                  }
+                  void handlePublish();
+                }}
+                disabled={(isPublishing && !pdfExportProgress) || !hasAnyTasks}
                 className={`rounded px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1 ${confidenceClasses(
                   publishConfidence.level,
                   "button",
                 )}`}
               >
                 <Send className="w-3.5 h-3.5" />
-                {isPublishing ? "Publishing..." : "Publish"}
+                {isPublishing
+                  ? pdfExportProgress
+                    ? "Cancel PDF"
+                    : "Publishing..."
+                  : "Publish"}
               </button>
             </Tooltip>
           )}
