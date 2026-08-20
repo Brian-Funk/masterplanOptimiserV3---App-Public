@@ -5,13 +5,15 @@
   "license": "AGPL-3.0-only",
   "main": "main.js",
   "scripts": {
-    "test": "node --test tests/process-ownership.test.js tests/runtime-config.test.js tests/user-data-paths.test.js tests/pdf-export.test.js tests/pdf-document.test.js tests/pdf-export-service.test.js tests/integrity.test.js tests/manifest-generation.test.js tests/dependency-audit.test.js tests/smoke-mode.test.js tests/release-workflow.test.js tests/publication-audit.test.js",
+    "test": "node --test tests/process-ownership.test.js tests/runtime-config.test.js tests/user-data-paths.test.js tests/pdf-export.test.js tests/pdf-document.test.js tests/pdf-export-service.test.js tests/excel-export.test.js tests/excel-export-service.test.js tests/integrity.test.js tests/manifest-generation.test.js tests/dependency-audit.test.js tests/smoke-mode.test.js tests/release-workflow.test.js tests/publication-audit.test.js",
     "audit:security": "node scripts/audit-dependencies.js",
     "audit:publication": "node scripts/audit-publication.js",
     "audit:publication:history": "node scripts/audit-publication.js --history",
     "test:electron-ownership": "set MP_RUN_ELECTRON_INTEGRATION=1&& node --test tests/windows-electron-ownership.test.js",
     "test:electron-pdf": "set MP_RUN_ELECTRON_PDF_INTEGRATION=1&& node --test tests/windows-electron-pdf.test.js",
+    "test:electron-excel": "set MP_RUN_ELECTRON_EXCEL_INTEGRATION=1&& node --test tests/windows-electron-excel.test.js",
     "test:electron-pdf:current": "node scripts/test-current-data-pdf.js",
+    "test:electron-excel:current": "node scripts/test-current-data-excel.js",
     "test:packaged-smoke": "node scripts/smoke-packaged.js dist",
     "prebuild": "npm --prefix ../web run build && npm run verify:frontend",
     "start": "electron .",
@@ -38,6 +40,8 @@
       "pdf-export.js",
       "pdf-document.js",
       "pdf-export-service.js",
+      "excel-export.js",
+      "excel-export-service.js",
       "startup-screen.js",
       "security-policy.js",
       "integrity.js",
@@ -79,6 +83,7 @@
   },
   "dependencies": {
     "dotenv": "^17.3.1",
+    "exceljs": "^4.4.0",
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
@@ -91,6 +96,7 @@
     "brace-expansion@5": "5.0.9",
     "fast-uri@3": "3.1.5",
     "js-yaml@4": "4.3.1",
+    "uuid": "11.1.1",
     "undici@7": "7.29.0"
   }
 }

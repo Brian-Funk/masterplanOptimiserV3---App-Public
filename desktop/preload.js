@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('electron', {
   /** Add renderer-side errors to the diagnostic log buffer. */
   recordRendererError: (payload) => ipcRenderer.invoke('record-renderer-error', payload),
 
-  /** Read or choose the workstation-local PDF export folder. */
+  /** Read or choose the workstation-local document export folder. */
   getPdfExportDirectory: () => ipcRenderer.invoke('get-pdf-export-directory'),
   choosePdfExportDirectory: () => ipcRenderer.invoke('choose-pdf-export-directory'),
   clearPdfExportDirectory: () => ipcRenderer.invoke('clear-pdf-export-directory'),
@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('electron', {
   getSchedulePdfExportStatus: (jobId) =>
     ipcRenderer.invoke('get-schedule-pdf-export-status', jobId),
   cancelSchedulePdfExport: (jobId) => ipcRenderer.invoke('cancel-schedule-pdf-export', jobId),
+
+  /** Start, observe, or cancel one main-process-controlled Excel export job. */
+  startScheduleExcelExport: (payload) => ipcRenderer.invoke('start-schedule-excel-export', payload),
+  getScheduleExcelExportStatus: (jobId) =>
+    ipcRenderer.invoke('get-schedule-excel-export-status', jobId),
+  cancelScheduleExcelExport: (jobId) => ipcRenderer.invoke('cancel-schedule-excel-export', jobId),
 
   /** Toggle the current Electron BrowserWindow fullscreen state. */
   setWindowFullscreen: (fullscreen) => ipcRenderer.invoke('set-window-fullscreen', Boolean(fullscreen)),
