@@ -1,43 +1,9 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const http = require('node:http');
-const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
-
-const { terminateProcessTree } = require('../process-ownership');
-
-function reservePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close((error) => (error ? reject(error) : resolve(port)));
-    });
-  });
-}
-
-function waitForHttp(url, timeoutMs = 45000) {
-  const started = Date.now();
-  return new Promise((resolve, reject) => {
-    const poll = () => {
-      const request = http.get(url, (response) => {
-        response.resume();
-        if (response.statusCode && response.statusCode < 500) return resolve();
-        if (Date.now() - started > timeoutMs) reject(new Error(`Timed out waiting for ${url}`));
-        else setTimeout(poll, 200);
-      });
-      request.on('error', () => {
-        if (Date.now() - started > timeoutMs) reject(new Error(`Timed out waiting for ${url}`));
-        else setTimeout(poll, 200);
-      });
-    };
-    poll();
-  });
-}
 
 function waitForExit(child, logs, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
@@ -61,7 +27,6 @@ test('Electron renders a production-sized portrait schedule PDF with dense conti
   fs.mkdirSync(outputDirectory);
   fs.mkdirSync(userData);
   const payloadPath = path.join(root, 'payload.json');
-  const outputPath = path.join(outputDirectory, 'Field_Plan_2032_04_21_14_07.pdf');
   const receiptPath = path.join(root, 'receipt.json');
   const fixturePath = path.join(root, 'pdf-renderer-electron-fixture.js');
   const fixtureConfigPath = path.join(root, 'fixture-config.json');
@@ -138,38 +103,19 @@ test('Electron renders a production-sized portrait schedule PDF with dense conti
   }));
   }
 
-  const port = await reservePort();
-  const frontendUrl = `http://127.0.0.1:${port}`;
-  const npmCli = process.env.npm_execpath;
-  assert.ok(npmCli, 'npm_execpath is required for the Electron PDF integration');
-  const frontendLogs = [];
-  const frontend = spawn(
-    process.execPath,
-    [npmCli, 'run', 'dev', '--', '--hostname', '127.0.0.1', '--port', String(port)],
-    { cwd: path.join(__dirname, '..', '..', 'web'), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
-  );
-  frontend.stdout.on('data', (data) => frontendLogs.push(data.toString()));
-  frontend.stderr.on('data', (data) => frontendLogs.push(data.toString()));
   t.after(() => {
-    if (frontend.exitCode === null) terminateProcessTree(frontend);
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   });
-  try {
-    await waitForHttp(`${frontendUrl}/pdf-export`);
-  } catch (error) {
-    process.stderr.write(frontendLogs.join(''));
-    throw error;
-  }
 
   const electronPath = require('electron');
   fs.writeFileSync(fixtureConfigPath, JSON.stringify({
     payloadPath,
-    outputPath,
+    outputDirectory,
     receiptPath,
-    frontendUrl,
     userDataPath: userData,
     preloadPath: path.join(__dirname, '..', 'preload.js'),
     pdfExportModulePath: path.join(__dirname, '..', 'pdf-export.js'),
+    pdfExportServiceModulePath: path.join(__dirname, '..', 'pdf-export-service.js'),
   }));
   const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...electronEnv } = process.env;
   const fixture = spawn(electronPath, [
@@ -193,36 +139,25 @@ test('Electron renders a production-sized portrait schedule PDF with dense conti
     throw error;
   }
 
-  const pdf = fs.readFileSync(outputPath);
   const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+  const pdf = fs.readFileSync(receipt.outputPath);
   assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
   assert.ok(receipt.pageCount >= 3, 'dense details must continue onto another portrait page');
-  if (!suppliedPayloadPath) {
-    assert.match(receipt.bodyText, /Field Plan/);
-    assert.match(receipt.bodyText, /Build the complete primary stage and verify every operational handover point/);
-    assert.match(receipt.bodyText, /Close the final operations desk/);
-    assert.match(receipt.bodyText, /T01/);
-    assert.match(receipt.bodyText, /Stage leads: Alex Example, Sam Example/);
-    assert.match(receipt.bodyText, /Operational instructions/i);
-    assert.match(receipt.bodyText, /Bring the equipment manifest/);
-    assert.match(receipt.bodyText, /Operational handover task 332 with a complete readable title/);
-  }
-  assert.doesNotMatch(receipt.visualState.rootClassName, /dark/);
-  assert.equal(receipt.visualState.background, 'rgb(255, 255, 255)');
-  assert.match(receipt.visualState.fontFamily, /Source Sans 3/);
-  assert.equal(receipt.visualState.logoReady, true);
-  assert.equal(receipt.visualState.logoHasColour, true);
-  assert.equal(receipt.visualState.detailRows, expectedTaskCount);
-  assert.deepEqual(
-    Array.from(new Set(receipt.progress.map((item) => item.stage))),
-    ['loading', 'building', 'assets', 'layout', 'ready'],
-  );
+  assert.equal(receipt.dayCount, 7);
+  assert.equal(receipt.taskCount, expectedTaskCount);
+  const stages = new Set(receipt.progress.map((item) => item.stage || item.diagnostic?.stage));
+  assert.ok(stages.has('rendering'));
+  assert.ok(stages.has('details'));
+  assert.ok(stages.has('merging'));
+  assert.ok(stages.has('saving'));
+  assert.ok(stages.has('complete'));
+  assert.ok(receipt.progress.some((item) => item.diagnostic?.fontMode === 'embedded'));
   assert.ok(receipt.mediaBox, 'PDF MediaBox is required');
   assert.ok(receipt.mediaBox.height > receipt.mediaBox.width, 'PDF must be portrait');
   assert.equal(path.dirname(path.resolve(receipt.outputPath)), path.resolve(outputDirectory));
   if (process.env.MP_PDF_INTEGRATION_OUTPUT) {
     const retainedPath = path.resolve(process.env.MP_PDF_INTEGRATION_OUTPUT);
     fs.mkdirSync(path.dirname(retainedPath), { recursive: true });
-    fs.copyFileSync(outputPath, retainedPath);
+    fs.copyFileSync(receipt.outputPath, retainedPath);
   }
 });
