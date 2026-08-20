@@ -67,6 +67,7 @@ export interface ExcelExportTask {
   colour: string;
   assignedSummary: string;
   additionalInfo: string;
+  additionalInfoFields?: Array<{ label: string; value: string }>;
   assignedPersonIds: number[];
   venue?: ExcelExportLocation | null;
   routeStart?: ExcelExportLocation | null;

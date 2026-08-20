@@ -8,6 +8,7 @@ const { sanitisePdfTitle } = require('./pdf-export');
 const MAX_DAYS = 62;
 const MAX_PEOPLE = 1000;
 const MAX_TASKS_PER_DAY = 2000;
+const MAX_ADDITIONAL_INFO_FIELDS = 200;
 const MAX_ASSIGNMENT_CELLS = 1_000_000;
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_CELL_TEXT = 32_767;
@@ -145,6 +146,30 @@ function validateExcelExportPayload(payload) {
       if (assignedPersonIds.some((personId) => !personIds.has(personId))) {
         throw new ExcelExportError('EXCEL_ASSIGNMENT_UNKNOWN_PERSON', 'A task assignment references a person outside this event.');
       }
+      let additionalInfoFields = null;
+      if (task.additionalInfoFields != null) {
+        if (!Array.isArray(task.additionalInfoFields) || task.additionalInfoFields.length > MAX_ADDITIONAL_INFO_FIELDS) {
+          throw new ExcelExportError('EXCEL_ADDITIONAL_INFO_INVALID', 'A task contains too many additional-information fields.');
+        }
+        additionalInfoFields = task.additionalInfoFields.map((field) => {
+          if (!field || typeof field !== 'object' || Array.isArray(field)) {
+            throw new ExcelExportError('EXCEL_ADDITIONAL_INFO_INVALID', 'A task contains invalid additional-information fields.');
+          }
+          const label = safeString(field.label, 240, `Task ${id} additional-information label`);
+          const value = safeString(field.value, MAX_CELL_TEXT, `Task ${id} additional-information value`);
+          if (!label || !value) {
+            throw new ExcelExportError('EXCEL_ADDITIONAL_INFO_INVALID', 'Additional-information labels and values cannot be empty.');
+          }
+          return { label, value };
+        });
+      }
+      const additionalInfo = additionalInfoFields
+        ? safeString(
+          additionalInfoFields.map((field) => `${field.label}: ${field.value}`).join('\n'),
+          MAX_CELL_TEXT,
+          `Task ${id} additional information`,
+        )
+        : safeString(task.additionalInfo ?? '', MAX_CELL_TEXT, `Task ${id} additional information`);
       return {
         id,
         title: safeString(task.title, 1000, `Task ${id} title`),
@@ -152,7 +177,8 @@ function validateExcelExportPayload(payload) {
         endMinutes,
         colour: normaliseColour(task.colour),
         assignedSummary: safeString(task.assignedSummary ?? '', MAX_CELL_TEXT, `Task ${id} assignment summary`),
-        additionalInfo: safeString(task.additionalInfo ?? '', MAX_CELL_TEXT, `Task ${id} additional information`),
+        additionalInfo,
+        additionalInfoFields,
         assignedPersonIds,
         venue: validateLocation(task.venue, `Task ${id} venue`),
         routeStart: validateLocation(task.routeStart, `Task ${id} route start`),
@@ -177,6 +203,28 @@ function validateExcelExportPayload(payload) {
     days,
     generatedAt: new Date().toISOString(),
   };
+}
+
+function additionalInfoRichText(task, fontArgb) {
+  if (!task.additionalInfo && !task.additionalInfoFields?.length) return '';
+  const normalFont = { name: 'Arial', size: 10, color: { argb: fontArgb } };
+  const boldFont = { ...normalFont, bold: true };
+  const runs = [];
+  const appendLine = (label, value, index) => {
+    if (index > 0) runs.push({ font: normalFont, text: '\n' });
+    if (label) runs.push({ font: boldFont, text: `${label}: ` });
+    runs.push({ font: normalFont, text: value });
+  };
+
+  if (task.additionalInfoFields?.length) {
+    task.additionalInfoFields.forEach((field, index) => appendLine(field.label, field.value, index));
+  } else {
+    task.additionalInfo.split('\n').forEach((line, index) => {
+      const match = /^([^:\n]{1,240}):\s+(.*)$/.exec(line);
+      appendLine(match?.[1] || '', match?.[2] ?? line, index);
+    });
+  }
+  return runs.length ? { richText: runs } : '';
 }
 
 function columnName(index) {
@@ -409,7 +457,7 @@ async function buildExcelWorkbookBuffer(payload, options = {}) {
       const hyperlink = venueHyperlink(task);
       row.getCell(4).value = hyperlink && venue ? { text: venue, hyperlink, tooltip: venue } : venue;
       row.getCell(5).value = task.assignedSummary;
-      row.getCell(6).value = task.additionalInfo;
+      row.getCell(6).value = additionalInfoRichText(task, fontArgb) || null;
       validated.people.forEach((person, index) => {
         row.getCell(7 + index).value = assigned.has(person.id) ? 'x' : null;
       });
@@ -522,11 +570,13 @@ function writeExcelBufferAtomically(outputDirectory, title, workbook, date = new
 module.exports = {
   ExcelExportError,
   MAX_ASSIGNMENT_CELLS,
+  MAX_ADDITIONAL_INFO_FIELDS,
   MAX_CELL_TEXT,
   MAX_DAYS,
   MAX_PEOPLE,
   MAX_TASKS_PER_DAY,
   buildExcelWorkbookBuffer,
+  additionalInfoRichText,
   cleanText,
   columnName,
   contrastColour,

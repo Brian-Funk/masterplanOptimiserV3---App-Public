@@ -239,6 +239,11 @@ def build_payload(connection: sqlite3.Connection, event_id: int | None) -> dict[
             "colour": layouts.get(int(instance["id"])) or task_type.get("color") or "#3b82f6",
             "assignedSummary": " | ".join(allocation_parts),
             "additionalInfo": "\n".join(info),
+            "additionalInfoFields": [
+                {"label": line.split(": ", 1)[0], "value": line.split(": ", 1)[1]}
+                for line in info
+                if ": " in line
+            ],
             "assignedPersonIds": sorted(assigned_ids),
             "venue": venue,
             "routeStart": route_start,

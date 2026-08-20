@@ -78,6 +78,11 @@ describe("Excel publication payload", () => {
     expect(result.days[0].tasks[0].additionalInfo).toBe(
       "Description: Operational transfer\nNotes: Bring the group list\nGroup list: https://example.invalid/list",
     );
+    expect(result.days[0].tasks[0].additionalInfoFields).toEqual([
+      { label: "Description", value: "Operational transfer" },
+      { label: "Notes", value: "Bring the group list" },
+      { label: "Group list", value: "https://example.invalid/list" },
+    ]);
     expect(result.days[0].tasks[0].additionalInfo).not.toContain("Vehicle");
     expect(JSON.stringify(result)).not.toContain("example.invalid/list\",\"field_people");
   });
