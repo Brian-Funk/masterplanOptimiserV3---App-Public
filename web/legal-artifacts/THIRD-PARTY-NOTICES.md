@@ -175,6 +175,8 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | @nodelib/fs.stat | 2.0.5 | MIT | `web/package-lock.json` |
 | @nodelib/fs.walk | 1.2.8 | MIT | `web/package-lock.json` |
 | @oxc-project/types | 0.142.0 | MIT | `web/package-lock.json` |
+| @pdf-lib/standard-fonts | 1.0.0 | MIT | `desktop/package-lock.json` |
+| @pdf-lib/upng | 1.0.1 | MIT | `desktop/package-lock.json` |
 | @peculiar/asn1-schema | 2.8.0 | MIT | `desktop/package-lock.json` |
 | @peculiar/json-schema | 1.1.12 | MIT | `desktop/package-lock.json` |
 | @peculiar/utils | 2.0.3 | MIT | `desktop/package-lock.json` |
@@ -532,11 +534,13 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | once | 1.4.0 | ISC | `desktop/package-lock.json` |
 | p-cancelable | 2.1.1 | MIT | `desktop/package-lock.json` |
 | p-limit | 3.1.0 | MIT | `desktop/package-lock.json` |
+| pako | 1.0.11 | (MIT AND Zlib) | `desktop/package-lock.json` |
 | parse5 | 7.3.0 | MIT | `web/package-lock.json` |
 | path-is-absolute | 1.0.1 | MIT | `desktop/package-lock.json` |
 | path-key | 3.1.1 | MIT | `desktop/package-lock.json` |
 | path-parse | 1.0.7 | MIT | `web/package-lock.json` |
 | pathe | 2.0.3 | MIT | `web/package-lock.json` |
+| pdf-lib | 1.17.1 | MIT | `desktop/package-lock.json` |
 | pe-library | 0.4.1 | MIT | `desktop/package-lock.json` |
 | picocolors | 1.1.1 | ISC | `desktop/package-lock.json` |
 | picocolors | 1.1.1 | ISC | `web/package-lock.json` |
@@ -656,6 +660,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | tr46 | 5.1.1 | MIT | `web/package-lock.json` |
 | truncate-utf8-bytes | 1.0.2 | WTFPL | `desktop/package-lock.json` |
 | ts-interface-checker | 0.1.13 | Apache-2.0 | `web/package-lock.json` |
+| tslib | 1.14.1 | 0BSD | `desktop/package-lock.json` |
 | tslib | 2.8.1 | 0BSD | `desktop/package-lock.json` |
 | tslib | 2.8.1 | 0BSD | `web/package-lock.json` |
 | type-fest | 0.13.1 | (MIT OR CC0-1.0) | `desktop/package-lock.json` |

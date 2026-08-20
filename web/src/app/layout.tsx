@@ -13,7 +13,6 @@ import {
   PendingDeletionWorkProvider,
 } from "@/contexts/PendingDeletionWorkContext";
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
 import { getApiUrl } from "@/lib/environment";
 
 export default function RootLayout({
@@ -21,11 +20,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
-  const isPdfExport = pathname === "/pdf-export";
-
   useEffect(() => {
-    if (isPdfExport) return;
     // Cleanup optimization jobs when window is closing
     const handleBeforeUnload = () => {
       const apiUrl = getApiUrl();
@@ -40,7 +35,7 @@ export default function RootLayout({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [isPdfExport]);
+  }, []);
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -70,12 +65,12 @@ export default function RootLayout({
           <ShortcutProvider>
             <ToastProvider>
               <PendingDeletionWorkProvider>
-                {!isPdfExport && <RendererErrorReporter />}
+                <RendererErrorReporter />
                 <LogDumpErrorBoundary>
-                  {!isPdfExport && <GlobalShortcuts />}
-                  {!isPdfExport && <GlobalPendingDeletionWorkBanner />}
+                  <GlobalShortcuts />
+                  <GlobalPendingDeletionWorkBanner />
                   {children}
-                  {!isPdfExport && <ToastContainer />}
+                  <ToastContainer />
                 </LogDumpErrorBoundary>
               </PendingDeletionWorkProvider>
             </ToastProvider>

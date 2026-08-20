@@ -27,13 +27,11 @@ contextBridge.exposeInMainWorld('electron', {
   choosePdfExportDirectory: () => ipcRenderer.invoke('choose-pdf-export-directory'),
   clearPdfExportDirectory: () => ipcRenderer.invoke('clear-pdf-export-directory'),
 
-  /** Render one structured Optimised Schedule payload into the configured folder. */
-  exportSchedulePdf: (payload) => ipcRenderer.invoke('export-schedule-pdf', payload),
-  getPdfExportJob: (jobId) => ipcRenderer.invoke('get-pdf-export-job', jobId),
-  notifyPdfExportProgress: (jobId, stage, completed, total) =>
-    ipcRenderer.invoke('notify-pdf-export-progress', jobId, stage, completed, total),
-  notifyPdfExportReady: (jobId) => ipcRenderer.invoke('notify-pdf-export-ready', jobId),
-  notifyPdfExportFailed: (jobId, code) => ipcRenderer.invoke('notify-pdf-export-failed', jobId, code),
+  /** Start, observe, or cancel one main-process-controlled PDF export job. */
+  startSchedulePdfExport: (payload) => ipcRenderer.invoke('start-schedule-pdf-export', payload),
+  getSchedulePdfExportStatus: (jobId) =>
+    ipcRenderer.invoke('get-schedule-pdf-export-status', jobId),
+  cancelSchedulePdfExport: (jobId) => ipcRenderer.invoke('cancel-schedule-pdf-export', jobId),
 
   /** Toggle the current Electron BrowserWindow fullscreen state. */
   setWindowFullscreen: (fullscreen) => ipcRenderer.invoke('set-window-fullscreen', Boolean(fullscreen)),
