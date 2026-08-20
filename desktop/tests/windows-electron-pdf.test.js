@@ -66,6 +66,13 @@ test('Electron renders a production-sized portrait schedule PDF with dense conti
   const fixturePath = path.join(root, 'pdf-renderer-electron-fixture.js');
   const fixtureConfigPath = path.join(root, 'fixture-config.json');
   fs.copyFileSync(path.join(__dirname, 'pdf-renderer-electron-fixture.js'), fixturePath);
+  const suppliedPayloadPath = process.env.MP_PDF_INTEGRATION_PAYLOAD;
+  let expectedTaskCount = 333;
+  if (suppliedPayloadPath) {
+    const supplied = JSON.parse(fs.readFileSync(path.resolve(suppliedPayloadPath), 'utf8'));
+    expectedTaskCount = supplied.days.reduce((sum, day) => sum + day.tasks.length, 0);
+    fs.writeFileSync(payloadPath, JSON.stringify(supplied));
+  } else {
   const dates = [
     '2032-04-21',
     '2032-04-22',
@@ -129,6 +136,7 @@ test('Electron renders a production-sized portrait schedule PDF with dense conti
     scheduleDayBoundary: { offsetHour: 0 },
     days,
   }));
+  }
 
   const port = await reservePort();
   const frontendUrl = `http://127.0.0.1:${port}`;
@@ -189,20 +197,22 @@ test('Electron renders a production-sized portrait schedule PDF with dense conti
   const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
   assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
   assert.ok(receipt.pageCount >= 3, 'dense details must continue onto another portrait page');
-  assert.match(receipt.bodyText, /Field Plan/);
-  assert.match(receipt.bodyText, /Build the complete primary stage and verify every operational handover point/);
-  assert.match(receipt.bodyText, /Close the final operations desk/);
-  assert.match(receipt.bodyText, /T01/);
-  assert.match(receipt.bodyText, /Stage leads: Alex Example, Sam Example/);
-  assert.match(receipt.bodyText, /Operational instructions/i);
-  assert.match(receipt.bodyText, /Bring the equipment manifest/);
-  assert.match(receipt.bodyText, /Operational handover task 332 with a complete readable title/);
+  if (!suppliedPayloadPath) {
+    assert.match(receipt.bodyText, /Field Plan/);
+    assert.match(receipt.bodyText, /Build the complete primary stage and verify every operational handover point/);
+    assert.match(receipt.bodyText, /Close the final operations desk/);
+    assert.match(receipt.bodyText, /T01/);
+    assert.match(receipt.bodyText, /Stage leads: Alex Example, Sam Example/);
+    assert.match(receipt.bodyText, /Operational instructions/i);
+    assert.match(receipt.bodyText, /Bring the equipment manifest/);
+    assert.match(receipt.bodyText, /Operational handover task 332 with a complete readable title/);
+  }
   assert.doesNotMatch(receipt.visualState.rootClassName, /dark/);
   assert.equal(receipt.visualState.background, 'rgb(255, 255, 255)');
   assert.match(receipt.visualState.fontFamily, /Source Sans 3/);
   assert.equal(receipt.visualState.logoReady, true);
   assert.equal(receipt.visualState.logoHasColour, true);
-  assert.equal(receipt.visualState.detailRows, 333);
+  assert.equal(receipt.visualState.detailRows, expectedTaskCount);
   assert.deepEqual(
     Array.from(new Set(receipt.progress.map((item) => item.stage))),
     ['loading', 'building', 'assets', 'layout', 'ready'],

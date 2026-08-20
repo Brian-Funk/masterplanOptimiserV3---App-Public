@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Calendar, { type CalendarTask } from "@/components/Calendar";
+import type { CalendarTask } from "@/components/Calendar";
 import type { PdfExportPayload } from "@/lib/electronDiagnostics";
 import {
   buildPdfDayTaskModel,
@@ -12,6 +12,7 @@ import {
   PdfReadinessError,
   waitForBoundedPaint,
 } from "@/lib/pdfExportReadiness";
+import { buildPdfTimelineLayout } from "@/lib/pdfTimeline";
 
 type PdfJob = PdfExportPayload & { generatedAt: string };
 
@@ -121,6 +122,68 @@ function PdfTaskDetailRow({ detail }: { detail: PdfTaskDetail }) {
         </article>
       </td>
     </tr>
+  );
+}
+
+function PdfTimeline({
+  tasks,
+  date,
+  scheduleDayRange,
+}: {
+  tasks: CalendarTask[];
+  date: string;
+  scheduleDayRange: PdfJob["scheduleDayRange"];
+}) {
+  const layout = buildPdfTimelineLayout(
+    tasks,
+    date,
+    scheduleDayRange as any,
+  );
+  return (
+    <div
+      className="pdf-static-timeline"
+      data-pdf-calendar-content
+      style={{ height: `${layout.totalHeight}px` }}
+    >
+      <div className="pdf-time-labels" aria-hidden="true">
+        {layout.hourLabels.map((hour) => (
+          <span key={`${hour.label}-${hour.top}`} style={{ top: `${hour.top}px` }}>
+            {hour.label}
+          </span>
+        ))}
+      </div>
+      <div className="pdf-timeline-canvas">
+        {layout.hourLabels.map((hour) => (
+          <span
+            aria-hidden="true"
+            className="pdf-hour-line"
+            key={`${hour.label}-${hour.top}`}
+            style={{ top: `${hour.top}px` }}
+          />
+        ))}
+        {layout.items.map((item) => (
+          <article
+            className="pdf-timeline-task"
+            data-task-id={item.task.id}
+            key={item.key}
+            style={{
+              top: `${item.top}px`,
+              height: `${item.height}px`,
+              left: `calc(${item.left}% + 1px)`,
+              width: `calc(${item.width}% - 2px)`,
+              borderLeftColor: item.task.task_type_color,
+            }}
+          >
+            <div>
+              <strong>{item.task._pdf_reference}</strong>
+              <span>{item.task.start_end_time?.start || item.task.time || ""}</span>
+            </div>
+            <p>{item.task.name}</p>
+            {item.task.location_name && <small>{item.task.location_name}</small>}
+          </article>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -260,21 +323,11 @@ export default function PdfExportPage() {
               </span>
             </div>
             <div className="pdf-calendar-frame" data-pdf-calendar-frame>
-              <div className="pdf-calendar-content" data-pdf-calendar-content>
-                <Calendar
-                  tasks={day.model.tasks}
-                  viewType="daily"
-                  selectedDate={day.date}
-                  eventStartDate={day.date}
-                  eventEndDate={day.date}
-                  scheduleDayRange={job.scheduleDayRange as any}
-                  scheduleDayBoundary={job.scheduleDayBoundary as any}
-                  onTaskEdit={() => undefined}
-                  presentationMode
-                  pdfMode
-                  density="comfortable"
-                />
-              </div>
+              <PdfTimeline
+                tasks={day.model.tasks}
+                date={day.date}
+                scheduleDayRange={job.scheduleDayRange}
+              />
             </div>
           </section>
 
@@ -455,6 +508,84 @@ export default function PdfExportPage() {
         .pdf-calendar-content {
           width: 100%;
           transform-origin: top left;
+        }
+        .pdf-static-timeline {
+          position: relative;
+          box-sizing: border-box;
+          width: 100%;
+          min-height: 32px;
+          padding-left: 13mm;
+          transform-origin: top left;
+          color: #111827;
+        }
+        .pdf-time-labels {
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 12mm;
+          color: #64748b;
+          font-size: 6.5pt;
+          font-variant-numeric: tabular-nums;
+        }
+        .pdf-time-labels span {
+          position: absolute;
+          right: 1.5mm;
+          transform: translateY(-50%);
+        }
+        .pdf-timeline-canvas {
+          position: relative;
+          box-sizing: border-box;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+          border: 1px solid #dbe3f0;
+          border-radius: 1.5mm;
+          background: #ffffff;
+        }
+        .pdf-hour-line {
+          position: absolute;
+          right: 0;
+          left: 0;
+          border-top: 1px solid #e5e7eb;
+        }
+        .pdf-timeline-task {
+          position: absolute;
+          box-sizing: border-box;
+          overflow: hidden;
+          border: 1px solid #dbe3f0;
+          border-left-width: 1.2mm;
+          border-radius: 1mm;
+          padding: 1mm 1.2mm;
+          background: #f8fafc;
+          color: #111827;
+          font-size: 6.5pt;
+          line-height: 1.1;
+        }
+        .pdf-timeline-task > div {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1mm;
+          color: #475569;
+          font-size: 5.8pt;
+        }
+        .pdf-timeline-task strong {
+          color: #4338ca;
+          font-weight: 800;
+        }
+        .pdf-timeline-task p {
+          margin: 0.6mm 0 0;
+          overflow: hidden;
+          font-weight: 700;
+          line-height: 1.12;
+        }
+        .pdf-timeline-task small {
+          display: block;
+          margin-top: 0.4mm;
+          overflow: hidden;
+          color: #64748b;
+          font-size: 5.8pt;
+          white-space: nowrap;
+          text-overflow: ellipsis;
         }
         [data-pdf-mode="true"] {
           overflow: visible !important;
