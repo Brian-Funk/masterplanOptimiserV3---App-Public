@@ -271,7 +271,11 @@ export default function PdfExportPage() {
     const ready = async () => {
       await progress("building", totalDays);
       await progress("assets", 0);
-      await waitAtMost(document.fonts.ready, 15000);
+      // `document.fonts.ready` can remain pending forever in a hidden Electron
+      // renderer even with background throttling disabled. Printing does not
+      // require that promise: Chromium uses the declared local fallback until
+      // the self-hosted face is available. Keep the bounded image wait, then
+      // validate the complete document and its measurable layout below.
       await waitAtMost(waitForImages(), 15000);
       await progress("assets", totalDays);
       await waitForBoundedPaint();
