@@ -53,7 +53,7 @@ function waitForExit(child, logs, timeoutMs = 60000) {
 
 test('Electron renders a production-sized portrait schedule PDF with dense continuation details', {
   skip: process.platform !== 'win32' || process.env.MP_RUN_ELECTRON_PDF_INTEGRATION !== '1',
-  timeout: 300000,
+  timeout: 480000,
 }, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-opt-electron-pdf-'));
   const outputDirectory = path.join(root, 'selected-output');
@@ -176,7 +176,7 @@ test('Electron renders a production-sized portrait schedule PDF with dense conti
     stdio: 'ignore',
   });
   try {
-    await waitForExit(fixture, [], 240000);
+    await waitForExit(fixture, [], 360000);
   } catch (error) {
     const debugPath = `${receiptPath}.log`;
     if (fs.existsSync(debugPath)) {
@@ -203,6 +203,10 @@ test('Electron renders a production-sized portrait schedule PDF with dense conti
   assert.equal(receipt.visualState.logoReady, true);
   assert.equal(receipt.visualState.logoHasColour, true);
   assert.equal(receipt.visualState.detailRows, 333);
+  assert.deepEqual(
+    Array.from(new Set(receipt.progress.map((item) => item.stage))),
+    ['loading', 'building', 'assets', 'layout', 'ready'],
+  );
   assert.ok(receipt.mediaBox, 'PDF MediaBox is required');
   assert.ok(receipt.mediaBox.height > receipt.mediaBox.width, 'PDF must be portrait');
   assert.equal(path.dirname(path.resolve(receipt.outputPath)), path.resolve(outputDirectory));

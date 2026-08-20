@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('electron', {
   /** Render one structured Optimised Schedule payload into the configured folder. */
   exportSchedulePdf: (payload) => ipcRenderer.invoke('export-schedule-pdf', payload),
   getPdfExportJob: (jobId) => ipcRenderer.invoke('get-pdf-export-job', jobId),
+  notifyPdfExportProgress: (jobId, stage, completed, total) =>
+    ipcRenderer.invoke('notify-pdf-export-progress', jobId, stage, completed, total),
   notifyPdfExportReady: (jobId) => ipcRenderer.invoke('notify-pdf-export-ready', jobId),
   notifyPdfExportFailed: (jobId, code) => ipcRenderer.invoke('notify-pdf-export-failed', jobId, code),
 

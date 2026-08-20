@@ -49,6 +49,14 @@ export interface PdfExportResult {
   fileName: string;
 }
 
+export type PdfExportProgressStage =
+  | "loading"
+  | "building"
+  | "assets"
+  | "layout"
+  | "ready"
+  | "printing";
+
 export interface ElectronDiagnosticBridge {
   isElectron?: boolean;
   platform?: string;
@@ -75,6 +83,12 @@ export interface ElectronDiagnosticBridge {
   clearPdfExportDirectory?: () => Promise<PdfExportDirectoryState>;
   exportSchedulePdf?: (payload: PdfExportPayload) => Promise<PdfExportResult>;
   getPdfExportJob?: (jobId: string) => Promise<PdfExportPayload & { generatedAt: string }>;
+  notifyPdfExportProgress?: (
+    jobId: string,
+    stage: PdfExportProgressStage,
+    completed: number,
+    total: number,
+  ) => Promise<{ stage: PdfExportProgressStage; completed: number; total: number }>;
   notifyPdfExportReady?: (jobId: string) => Promise<{ success: boolean }>;
   notifyPdfExportFailed?: (
     jobId: string,

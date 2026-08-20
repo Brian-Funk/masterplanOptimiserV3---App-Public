@@ -7,6 +7,11 @@ import {
   buildPdfDayTaskModel,
   type PdfTaskDetail,
 } from "@/lib/pdfScheduleDetails";
+import {
+  assertPdfDocumentReady,
+  PdfReadinessError,
+  waitForBoundedPaint,
+} from "@/lib/pdfExportReadiness";
 
 type PdfJob = PdfExportPayload & { generatedAt: string };
 
@@ -136,7 +141,15 @@ export default function PdfExportPage() {
     }
     window.electron
       .getPdfExportJob(jobId)
-      .then(setJob)
+      .then(async (loadedJob) => {
+        await window.electron?.notifyPdfExportProgress?.(
+          jobId,
+          "loading",
+          loadedJob.days.length,
+          loadedJob.days.length,
+        );
+        setJob(loadedJob);
+      })
       .catch((reason) => {
         setError(reason instanceof Error ? reason.message : String(reason));
         if (window.electron?.notifyPdfExportFailed) {
@@ -174,23 +187,48 @@ export default function PdfExportPage() {
   useEffect(() => {
     if (!job || days.length === 0) return;
     const jobId = new URLSearchParams(window.location.search).get("job");
+    const totalDays = days.length;
+    const totalTasks = days.reduce(
+      (count, day) => count + day.model.details.length,
+      0,
+    );
+    const progress = async (
+      stage: "building" | "assets" | "layout" | "ready",
+      completed: number,
+    ) => {
+      if (!jobId || !window.electron?.notifyPdfExportProgress) return;
+      await window.electron.notifyPdfExportProgress(
+        jobId,
+        stage,
+        completed,
+        totalDays,
+      );
+    };
     let cancelled = false;
     const ready = async () => {
+      await progress("building", totalDays);
+      await progress("assets", 0);
       await waitAtMost(document.fonts.ready, 15000);
       await waitAtMost(waitForImages(), 15000);
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      );
+      await progress("assets", totalDays);
+      await waitForBoundedPaint();
+      await progress("layout", 0);
       fitCalendars();
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await waitForBoundedPaint();
+      assertPdfDocumentReady(document, totalDays, totalTasks);
+      await progress("layout", totalDays);
       if (!cancelled && jobId && window.electron?.notifyPdfExportReady) {
+        await progress("ready", totalDays);
         await window.electron.notifyPdfExportReady(jobId);
       }
     };
     ready().catch((reason) => {
       setError(reason instanceof Error ? reason.message : String(reason));
       if (jobId && window.electron?.notifyPdfExportFailed) {
-        void window.electron.notifyPdfExportFailed(jobId, "PDF_READY_FAILED");
+        const code = reason instanceof PdfReadinessError
+          ? reason.code
+          : "PDF_READY_FAILED";
+        void window.electron.notifyPdfExportFailed(jobId, code);
       }
     });
     return () => {
