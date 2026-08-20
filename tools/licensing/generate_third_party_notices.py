@@ -107,6 +107,7 @@ def refresh_python_metadata(root: Path, config: dict, destination: Path) -> dict
 
 def npm_packages(root: Path, config: dict) -> list[dict[str, str]]:
     result = []
+    overrides = config.get("npm_license_overrides", {})
     for relative in config["npm_locks"]:
         lock = load_json(root / relative)
         for package_path, metadata in (lock.get("packages") or {}).items():
@@ -114,7 +115,8 @@ def npm_packages(root: Path, config: dict) -> list[dict[str, str]]:
                 continue
             name = package_path.rsplit("node_modules/", 1)[-1]
             version = str(metadata.get("version") or "").strip()
-            license_name = str(metadata.get("license") or "").strip()
+            key = f"{name}@{version}"
+            license_name = str(metadata.get("license") or overrides.get(key) or "").strip()
             if not name or not version or not license_name:
                 raise ValueError(f"incomplete npm licence metadata in {relative}: {package_path}")
             result.append({"name": name, "version": version, "license": license_name, "source": relative})

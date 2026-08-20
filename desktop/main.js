@@ -42,6 +42,10 @@ const {
   registerPdfExportIpc,
   registerPdfProtocolScheme,
 } = require('./pdf-export-service');
+const {
+  createExcelExportManager,
+  registerExcelExportIpc,
+} = require('./excel-export-service');
 
 // Custom schemes must be registered before Electron becomes ready. The scheme
 // is used only in isolated, in-memory PDF sessions created by the main process.
@@ -182,6 +186,21 @@ const pdfExportManager = createPdfExportManager({
       Number.isSafeInteger(entry.taskCount) ? `tasks=${entry.taskCount}` : '',
     ].filter(Boolean).join(' ');
     appendDiagnosticLog('main', 'log', `PDF export ${safe}.`);
+  },
+});
+
+const excelExportManager = createExcelExportManager({
+  getUserDataDirectory: () => getDesktopDataPaths().userDataDir,
+  logger: (entry) => {
+    const safe = [
+      `stage=${entry.stage}`,
+      entry.state ? `state=${entry.state}` : '',
+      Number.isSafeInteger(entry.completed) ? `completed=${entry.completed}` : '',
+      Number.isSafeInteger(entry.total) ? `total=${entry.total}` : '',
+      Number.isSafeInteger(entry.dayCount) ? `days=${entry.dayCount}` : '',
+      Number.isSafeInteger(entry.taskCount) ? `tasks=${entry.taskCount}` : '',
+    ].filter(Boolean).join(' ');
+    appendDiagnosticLog('main', 'log', `Excel export ${safe}.`);
   },
 });
 
@@ -1042,7 +1061,7 @@ ipcMain.handle('get-pdf-export-directory', async (event) => {
 ipcMain.handle('choose-pdf-export-directory', async (event) => {
   const senderWindow = getTrustedSenderWindow(event);
   const result = await dialog.showOpenDialog(senderWindow, {
-    title: 'Choose PDF Export Folder',
+    title: 'Choose Local Document Export Folder',
     properties: ['openDirectory', 'createDirectory'],
   });
   if (result.canceled || result.filePaths.length !== 1) {
@@ -1064,6 +1083,12 @@ ipcMain.handle('clear-pdf-export-directory', async (event) => {
 registerPdfExportIpc({
   ipcMain,
   manager: pdfExportManager,
+  authorise: assertTrustedIpcSender,
+});
+
+registerExcelExportIpc({
+  ipcMain,
+  manager: excelExportManager,
   authorise: assertTrustedIpcSender,
 });
 
@@ -1258,6 +1283,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   pdfExportManager.shutdown();
+  excelExportManager.shutdown();
   ownedProcesses.terminateAll();
 });
 

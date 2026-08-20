@@ -122,6 +122,8 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | @emnapi/runtime | 1.11.3 | MIT | `web/package-lock.json` |
 | @emnapi/runtime | 2.0.0-alpha.3 | MIT | `web/package-lock.json` |
 | @emnapi/wasi-threads | 2.0.1 | MIT | `web/package-lock.json` |
+| @fast-csv/format | 4.3.5 | MIT | `desktop/package-lock.json` |
+| @fast-csv/parse | 4.3.6 | MIT | `desktop/package-lock.json` |
 | @fontsource/source-sans-3 | 5.2.9 | OFL-1.1 | `web/package-lock.json` |
 | @gerrit0/mini-shiki | 3.23.0 | MIT | `web/package-lock.json` |
 | @img/colour | 1.1.0 | MIT | `web/package-lock.json` |
@@ -226,6 +228,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | @types/http-cache-semantics | 4.2.0 | MIT | `desktop/package-lock.json` |
 | @types/keyv | 3.1.4 | MIT | `desktop/package-lock.json` |
 | @types/ms | 2.1.0 | MIT | `desktop/package-lock.json` |
+| @types/node | 14.18.63 | MIT | `desktop/package-lock.json` |
 | @types/node | 20.19.25 | MIT | `web/package-lock.json` |
 | @types/node | 24.12.4 | MIT | `desktop/package-lock.json` |
 | @types/prop-types | 15.7.15 | MIT | `web/package-lock.json` |
@@ -255,6 +258,9 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | any-promise | 1.3.0 | MIT | `web/package-lock.json` |
 | anymatch | 3.1.3 | ISC | `web/package-lock.json` |
 | app-builder-lib | 26.15.3 | MIT | `desktop/package-lock.json` |
+| archiver | 5.3.2 | MIT | `desktop/package-lock.json` |
+| archiver-utils | 2.1.0 | MIT | `desktop/package-lock.json` |
+| archiver-utils | 3.0.4 | MIT | `desktop/package-lock.json` |
 | arg | 5.0.2 | MIT | `web/package-lock.json` |
 | argparse | 2.0.1 | Python-2.0 | `desktop/package-lock.json` |
 | argparse | 2.0.1 | Python-2.0 | `web/package-lock.json` |
@@ -273,7 +279,11 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | balanced-match | 4.0.4 | MIT | `web/package-lock.json` |
 | base64-js | 1.5.1 | MIT | `desktop/package-lock.json` |
 | baseline-browser-mapping | 2.10.29 | Apache-2.0 | `web/package-lock.json` |
+| big-integer | 1.6.52 | Unlicense | `desktop/package-lock.json` |
+| binary | 0.3.0 | MIT | `desktop/package-lock.json` |
 | binary-extensions | 2.3.0 | MIT | `web/package-lock.json` |
+| bl | 4.1.0 | MIT | `desktop/package-lock.json` |
+| bluebird | 3.4.7 | MIT | `desktop/package-lock.json` |
 | bluebird | 3.7.2 | MIT | `desktop/package-lock.json` |
 | boolean | 3.2.0 | MIT | `desktop/package-lock.json` |
 | brace-expansion | 1.1.18 | MIT | `desktop/package-lock.json` |
@@ -282,7 +292,11 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | brace-expansion | 5.0.9 | MIT | `web/package-lock.json` |
 | braces | 3.0.3 | MIT | `web/package-lock.json` |
 | browserslist | 4.28.0 | MIT | `web/package-lock.json` |
+| buffer | 5.7.1 | MIT | `desktop/package-lock.json` |
+| buffer-crc32 | 0.2.13 | MIT | `desktop/package-lock.json` |
 | buffer-from | 1.1.2 | MIT | `desktop/package-lock.json` |
+| buffer-indexof-polyfill | 1.0.2 | MIT | `desktop/package-lock.json` |
+| buffers | 0.1.1 | MIT | `desktop/package-lock.json` |
 | builder-util | 26.15.3 | MIT | `desktop/package-lock.json` |
 | builder-util-runtime | 9.7.0 | MIT | `desktop/package-lock.json` |
 | bytestreamjs | 2.0.1 | BSD-3-Clause | `desktop/package-lock.json` |
@@ -293,6 +307,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | camelcase-css | 2.0.1 | MIT | `web/package-lock.json` |
 | caniuse-lite | 1.0.30001757 | CC-BY-4.0 | `web/package-lock.json` |
 | chai | 6.2.2 | MIT | `web/package-lock.json` |
+| chainsaw | 0.1.0 | MIT/X11 | `desktop/package-lock.json` |
 | chalk | 3.0.0 | MIT | `web/package-lock.json` |
 | chalk | 4.1.2 | MIT | `desktop/package-lock.json` |
 | chart.js | 4.5.1 | MIT | `web/package-lock.json` |
@@ -315,15 +330,19 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | commander | 4.1.1 | MIT | `web/package-lock.json` |
 | commander | 5.1.0 | MIT | `desktop/package-lock.json` |
 | compare-version | 0.1.2 | MIT | `desktop/package-lock.json` |
+| compress-commons | 4.1.2 | MIT | `desktop/package-lock.json` |
 | concat-map | 0.0.1 | MIT | `desktop/package-lock.json` |
 | convert-source-map | 2.0.0 | MIT | `web/package-lock.json` |
 | core-util-is | 1.0.3 | MIT | `desktop/package-lock.json` |
+| crc-32 | 1.2.2 | Apache-2.0 | `desktop/package-lock.json` |
+| crc32-stream | 4.0.3 | MIT | `desktop/package-lock.json` |
 | cross-spawn | 7.0.6 | MIT | `desktop/package-lock.json` |
 | css.escape | 1.5.1 | MIT | `web/package-lock.json` |
 | cssesc | 3.0.0 | MIT | `web/package-lock.json` |
 | cssstyle | 4.6.0 | MIT | `web/package-lock.json` |
 | csstype | 3.2.3 | MIT | `web/package-lock.json` |
 | data-urls | 5.0.0 | MIT | `web/package-lock.json` |
+| dayjs | 1.11.23 | MIT | `desktop/package-lock.json` |
 | debug | 4.4.3 | MIT | `desktop/package-lock.json` |
 | debug | 4.4.3 | MIT | `web/package-lock.json` |
 | decimal.js | 10.6.0 | MIT | `web/package-lock.json` |
@@ -376,8 +395,10 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | escalade | 3.2.0 | MIT | `web/package-lock.json` |
 | escape-string-regexp | 4.0.0 | MIT | `desktop/package-lock.json` |
 | estree-walker | 3.0.3 | MIT | `web/package-lock.json` |
+| exceljs | 4.4.0 | MIT | `desktop/package-lock.json` |
 | expect-type | 1.4.0 | Apache-2.0 | `web/package-lock.json` |
 | exponential-backoff | 3.1.3 | Apache-2.0 | `desktop/package-lock.json` |
+| fast-csv | 4.3.6 | MIT | `desktop/package-lock.json` |
 | fast-deep-equal | 3.1.3 | MIT | `desktop/package-lock.json` |
 | fast-equals | 4.0.3 | MIT | `web/package-lock.json` |
 | fast-glob | 3.3.3 | MIT | `web/package-lock.json` |
@@ -390,6 +411,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | form-data | 4.0.6 | MIT | `desktop/package-lock.json` |
 | form-data | 4.0.6 | MIT | `web/package-lock.json` |
 | fraction.js | 5.3.4 | MIT | `web/package-lock.json` |
+| fs-constants | 1.0.0 | MIT | `desktop/package-lock.json` |
 | fs-extra | 10.1.0 | MIT | `desktop/package-lock.json` |
 | fs-extra | 11.3.1 | MIT | `desktop/package-lock.json` |
 | fs-extra | 11.4.0 | MIT | `desktop/package-lock.json` |
@@ -398,6 +420,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | fs-extra | 9.1.0 | MIT | `desktop/package-lock.json` |
 | fs.realpath | 1.0.0 | ISC | `desktop/package-lock.json` |
 | fsevents | 2.3.3 | MIT | `web/package-lock.json` |
+| fstream | 1.0.12 | ISC | `desktop/package-lock.json` |
 | function-bind | 1.1.2 | MIT | `desktop/package-lock.json` |
 | function-bind | 1.1.2 | MIT | `web/package-lock.json` |
 | get-caller-file | 2.0.5 | ISC | `desktop/package-lock.json` |
@@ -433,6 +456,8 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | https-proxy-agent | 7.0.6 | MIT | `desktop/package-lock.json` |
 | https-proxy-agent | 7.0.6 | MIT | `web/package-lock.json` |
 | iconv-lite | 0.6.3 | MIT | `web/package-lock.json` |
+| ieee754 | 1.2.1 | BSD-3-Clause | `desktop/package-lock.json` |
+| immediate | 3.0.6 | MIT | `desktop/package-lock.json` |
 | indent-string | 4.0.0 | MIT | `web/package-lock.json` |
 | inflight | 1.0.6 | ISC | `desktop/package-lock.json` |
 | inherits | 2.0.4 | ISC | `desktop/package-lock.json` |
@@ -461,8 +486,11 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | json5 | 2.2.3 | MIT | `desktop/package-lock.json` |
 | jsonfile | 4.0.0 | MIT | `desktop/package-lock.json` |
 | jsonfile | 6.2.1 | MIT | `desktop/package-lock.json` |
+| jszip | 3.10.1 | (MIT OR GPL-3.0-or-later) | `desktop/package-lock.json` |
 | keyv | 4.5.4 | MIT | `desktop/package-lock.json` |
 | lazy-val | 1.0.5 | MIT | `desktop/package-lock.json` |
+| lazystream | 1.0.1 | MIT | `desktop/package-lock.json` |
+| lie | 3.3.0 | MIT | `desktop/package-lock.json` |
 | lightningcss | 1.33.0 | MPL-2.0 | `web/package-lock.json` |
 | lightningcss-android-arm64 | 1.33.0 | MPL-2.0 | `web/package-lock.json` |
 | lightningcss-darwin-arm64 | 1.33.0 | MPL-2.0 | `web/package-lock.json` |
@@ -478,8 +506,22 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | lilconfig | 3.1.3 | MIT | `web/package-lock.json` |
 | lines-and-columns | 1.2.4 | MIT | `web/package-lock.json` |
 | linkify-it | 5.0.2 | MIT | `web/package-lock.json` |
+| listenercount | 1.0.1 | ISC | `desktop/package-lock.json` |
 | lodash | 4.18.1 | MIT | `desktop/package-lock.json` |
 | lodash | 4.18.1 | MIT | `web/package-lock.json` |
+| lodash.defaults | 4.2.0 | MIT | `desktop/package-lock.json` |
+| lodash.difference | 4.5.0 | MIT | `desktop/package-lock.json` |
+| lodash.escaperegexp | 4.1.2 | MIT | `desktop/package-lock.json` |
+| lodash.flatten | 4.4.0 | MIT | `desktop/package-lock.json` |
+| lodash.groupby | 4.6.0 | MIT | `desktop/package-lock.json` |
+| lodash.isboolean | 3.0.3 | MIT | `desktop/package-lock.json` |
+| lodash.isequal | 4.5.0 | MIT | `desktop/package-lock.json` |
+| lodash.isfunction | 3.0.9 | MIT | `desktop/package-lock.json` |
+| lodash.isnil | 4.0.0 | MIT | `desktop/package-lock.json` |
+| lodash.isplainobject | 4.0.6 | MIT | `desktop/package-lock.json` |
+| lodash.isundefined | 3.0.1 | MIT | `desktop/package-lock.json` |
+| lodash.union | 4.6.0 | MIT | `desktop/package-lock.json` |
+| lodash.uniq | 4.5.0 | MIT | `desktop/package-lock.json` |
 | loose-envify | 1.4.0 | MIT | `web/package-lock.json` |
 | lowercase-keys | 2.0.0 | MIT | `desktop/package-lock.json` |
 | lru-cache | 10.4.3 | ISC | `web/package-lock.json` |
@@ -523,6 +565,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | node-int64 | 0.4.0 | MIT | `desktop/package-lock.json` |
 | node-releases | 2.0.27 | MIT | `web/package-lock.json` |
 | nopt | 9.0.0 | ISC | `desktop/package-lock.json` |
+| normalize-path | 3.0.0 | MIT | `desktop/package-lock.json` |
 | normalize-path | 3.0.0 | MIT | `web/package-lock.json` |
 | normalize-range | 0.1.2 | MIT | `web/package-lock.json` |
 | normalize-url | 6.1.0 | MIT | `desktop/package-lock.json` |
@@ -585,6 +628,8 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | read-binary-file-arch | 1.0.6 | MIT | `desktop/package-lock.json` |
 | read-cache | 1.0.0 | MIT | `web/package-lock.json` |
 | readable-stream | 2.3.8 | MIT | `desktop/package-lock.json` |
+| readable-stream | 3.6.2 | MIT | `desktop/package-lock.json` |
+| readdir-glob | 1.1.3 | Apache-2.0 | `desktop/package-lock.json` |
 | readdirp | 3.6.0 | MIT | `web/package-lock.json` |
 | redent | 3.0.0 | MIT | `web/package-lock.json` |
 | require-directory | 2.1.1 | MIT | `desktop/package-lock.json` |
@@ -606,6 +651,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | safer-buffer | 2.1.2 | MIT | `web/package-lock.json` |
 | sanitize-filename | 1.6.4 | WTFPL OR ISC | `desktop/package-lock.json` |
 | sax | 1.6.1 | BlueOak-1.0.0 | `desktop/package-lock.json` |
+| saxes | 5.0.1 | ISC | `desktop/package-lock.json` |
 | saxes | 6.0.0 | ISC | `web/package-lock.json` |
 | scheduler | 0.23.2 | MIT | `web/package-lock.json` |
 | semver | 5.7.2 | ISC | `desktop/package-lock.json` |
@@ -615,6 +661,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | semver | 7.8.5 | ISC | `web/package-lock.json` |
 | semver-compare | 1.0.0 | MIT | `desktop/package-lock.json` |
 | serialize-error | 7.0.1 | MIT | `desktop/package-lock.json` |
+| setimmediate | 1.0.5 | MIT | `desktop/package-lock.json` |
 | sharp | 0.35.3 | Apache-2.0 | `web/package-lock.json` |
 | shebang-command | 2.0.0 | MIT | `desktop/package-lock.json` |
 | shebang-regex | 3.0.0 | MIT | `desktop/package-lock.json` |
@@ -641,6 +688,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | symbol-tree | 3.2.4 | MIT | `web/package-lock.json` |
 | tailwindcss | 3.4.18 | MIT | `web/package-lock.json` |
 | tar | 7.5.22 | BlueOak-1.0.0 | `desktop/package-lock.json` |
+| tar-stream | 2.2.0 | MIT | `desktop/package-lock.json` |
 | temp | 0.9.4 | MIT | `desktop/package-lock.json` |
 | temp-file | 3.4.0 | MIT | `desktop/package-lock.json` |
 | thenify | 3.3.1 | MIT | `web/package-lock.json` |
@@ -658,6 +706,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | to-regex-range | 5.0.1 | MIT | `web/package-lock.json` |
 | tough-cookie | 5.1.2 | BSD-3-Clause | `web/package-lock.json` |
 | tr46 | 5.1.1 | MIT | `web/package-lock.json` |
+| traverse | 0.3.9 | MIT/X11 | `desktop/package-lock.json` |
 | truncate-utf8-bytes | 1.0.2 | WTFPL | `desktop/package-lock.json` |
 | ts-interface-checker | 0.1.13 | Apache-2.0 | `web/package-lock.json` |
 | tslib | 1.14.1 | 0BSD | `desktop/package-lock.json` |
@@ -674,11 +723,13 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | undici-types | 7.16.0 | MIT | `desktop/package-lock.json` |
 | universalify | 0.1.2 | MIT | `desktop/package-lock.json` |
 | universalify | 2.0.1 | MIT | `desktop/package-lock.json` |
+| unzipper | 0.10.14 | MIT | `desktop/package-lock.json` |
 | unzipper | 0.12.5 | MIT | `desktop/package-lock.json` |
 | update-browserslist-db | 1.1.4 | MIT | `web/package-lock.json` |
 | utf8-byte-length | 1.0.5 | (WTFPL OR MIT) | `desktop/package-lock.json` |
 | util-deprecate | 1.0.2 | MIT | `desktop/package-lock.json` |
 | util-deprecate | 1.0.2 | MIT | `web/package-lock.json` |
+| uuid | 11.1.1 | MIT | `desktop/package-lock.json` |
 | vite | 8.2.0 | MIT | `web/package-lock.json` |
 | vitest | 4.1.10 | MIT | `web/package-lock.json` |
 | w3c-xmlserializer | 5.0.0 | MIT | `web/package-lock.json` |
@@ -696,6 +747,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | ws | 8.21.1 | MIT | `web/package-lock.json` |
 | xml-name-validator | 5.0.0 | Apache-2.0 | `web/package-lock.json` |
 | xmlbuilder | 15.1.1 | MIT | `desktop/package-lock.json` |
+| xmlchars | 2.2.0 | MIT | `desktop/package-lock.json` |
 | xmlchars | 2.2.0 | MIT | `web/package-lock.json` |
 | y18n | 5.0.8 | ISC | `desktop/package-lock.json` |
 | yallist | 4.0.0 | ISC | `desktop/package-lock.json` |
@@ -704,6 +756,7 @@ Release SBOMs remain authoritative for operating-system packages and exact conta
 | yargs | 17.7.2 | MIT | `desktop/package-lock.json` |
 | yargs-parser | 21.1.1 | ISC | `desktop/package-lock.json` |
 | yocto-queue | 0.1.0 | MIT | `desktop/package-lock.json` |
+| zip-stream | 4.1.1 | MIT | `desktop/package-lock.json` |
 
 ## Images, runtimes and bundled assets
 

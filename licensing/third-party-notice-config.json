@@ -9,6 +9,9 @@
   ],
   "python_metadata": "licensing/python-licenses.json",
   "python_license_overrides": {},
+  "npm_license_overrides": {
+    "buffers@0.1.1": "MIT"
+  },
   "output_files": [
     "THIRD-PARTY-NOTICES.md",
     "web/legal-artifacts/THIRD-PARTY-NOTICES.md"
