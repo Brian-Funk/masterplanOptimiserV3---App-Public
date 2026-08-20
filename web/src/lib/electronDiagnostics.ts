@@ -49,13 +49,44 @@ export interface PdfExportResult {
   fileName: string;
 }
 
+export type PdfExportJobState =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
 export type PdfExportProgressStage =
-  | "loading"
-  | "building"
-  | "assets"
-  | "layout"
-  | "ready"
-  | "printing";
+  | "queued"
+  | "preparing"
+  | "rendering"
+  | "details"
+  | "merging"
+  | "saving"
+  | "complete"
+  | "failed"
+  | "cancelled";
+
+export interface PdfExportJobStart {
+  jobId: string;
+  reused: boolean;
+}
+
+export interface PdfExportJobStatus {
+  jobId: string;
+  state: PdfExportJobState;
+  stage: PdfExportProgressStage;
+  message: string;
+  completed: number;
+  total: number;
+  dayCount: number;
+  taskCount: number;
+  retry: number;
+  startedAt: string;
+  updatedAt: string;
+  result?: PdfExportResult;
+  error?: { code: string; message: string };
+}
 
 export interface ElectronDiagnosticBridge {
   isElectron?: boolean;
@@ -81,19 +112,9 @@ export interface ElectronDiagnosticBridge {
   getPdfExportDirectory?: () => Promise<PdfExportDirectoryState>;
   choosePdfExportDirectory?: () => Promise<PdfExportDirectoryState>;
   clearPdfExportDirectory?: () => Promise<PdfExportDirectoryState>;
-  exportSchedulePdf?: (payload: PdfExportPayload) => Promise<PdfExportResult>;
-  getPdfExportJob?: (jobId: string) => Promise<PdfExportPayload & { generatedAt: string }>;
-  notifyPdfExportProgress?: (
-    jobId: string,
-    stage: PdfExportProgressStage,
-    completed: number,
-    total: number,
-  ) => Promise<{ stage: PdfExportProgressStage; completed: number; total: number }>;
-  notifyPdfExportReady?: (jobId: string) => Promise<{ success: boolean }>;
-  notifyPdfExportFailed?: (
-    jobId: string,
-    code: string,
-  ) => Promise<{ success: boolean }>;
+  startSchedulePdfExport?: (payload: PdfExportPayload) => Promise<PdfExportJobStart>;
+  getSchedulePdfExportStatus?: (jobId: string) => Promise<PdfExportJobStatus>;
+  cancelSchedulePdfExport?: (jobId: string) => Promise<PdfExportJobStatus>;
 }
 
 declare global {

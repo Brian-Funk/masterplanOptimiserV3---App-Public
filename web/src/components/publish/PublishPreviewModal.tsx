@@ -16,6 +16,7 @@ export interface PublishPreviewModalProps {
   open: boolean;
   preview: PublishPreview | null;
   publishing?: boolean;
+  publishingStatus?: string;
   policyRequired?: boolean;
   dataPolicy?: MpBackendDataPolicy | null;
   policyLoading?: boolean;
@@ -78,6 +79,7 @@ export function PublishPreviewModal({
   open,
   preview,
   publishing = false,
+  publishingStatus = "",
   policyRequired = false,
   dataPolicy = null,
   policyLoading = false,
@@ -244,9 +246,20 @@ export function PublishPreviewModal({
           </div>
         )}
 
+        {publishingStatus && (
+          <div className="mt-6 flex items-center gap-3 rounded-lg border border-bordercl bg-surface-alt px-4 py-3 text-sm text-foreground-secondary" role="status">
+            <Spinner size="sm" />
+            <span>{publishingStatus}</span>
+          </div>
+        )}
+
         <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-bordercl pt-4">
-          <Button variant="secondary" onClick={onCancel} disabled={publishing}>
-            Cancel
+          <Button
+            variant="secondary"
+            onClick={onCancel}
+            disabled={publishing && !publishingStatus}
+          >
+            {publishingStatus ? "Cancel PDF" : "Cancel"}
           </Button>
           <Button
             onClick={onConfirm}
@@ -255,7 +268,7 @@ export function PublishPreviewModal({
             {publishing ? (
               <>
                 <Spinner size="sm" className="mr-2" />
-                Publishing...
+                {publishingStatus || "Publishing..."}
               </>
             ) : (
               <>
