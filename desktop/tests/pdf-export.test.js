@@ -6,13 +6,17 @@ const test = require('node:test');
 
 const {
   buildPdfPrintOptions,
-  calculatePdfReadyTimeout,
   clearPdfExportSettings,
+  createPdfProgressWatchdog,
   describePdfExportDirectory,
+  describePdfProgress,
   localTimestamp,
   nextPdfPath,
   sanitisePdfTitle,
   validatePdfExportPayload,
+  validatePdfProgress,
+  withPdfTimeout,
+  writePdfBufferAtomically,
   writePdfExportSettings,
 } = require('../pdf-export');
 
@@ -27,16 +31,55 @@ test('PDF printing uses A4 portrait with backgrounds and native page numbering',
   assert.match(options.footerTemplate, /totalPages/);
 });
 
-test('PDF readiness is workload-aware and remains bounded', () => {
-  assert.equal(calculatePdfReadyTimeout({ days: [{ tasks: [] }] }), 30000);
-  assert.equal(
-    calculatePdfReadyTimeout({ days: [{ tasks: Array.from({ length: 333 }) }] }),
-    146550,
+test('PDF progress accepts only bounded safe stages and counts', () => {
+  assert.deepEqual(validatePdfProgress('layout', 3, 7), {
+    stage: 'layout',
+    completed: 3,
+    total: 7,
+  });
+  assert.equal(describePdfProgress({ stage: 'layout', completed: 3, total: 7 }), 'layout after 3/7');
+  assert.throws(() => validatePdfProgress('event name', 0, 1), /stage/);
+  assert.throws(() => validatePdfProgress('layout', 2, 1), /count/);
+  assert.throws(() => validatePdfProgress('layout', 0.5, 1), /count/);
+});
+
+test('PDF progress renews the idle watchdog without extending the absolute deadline', () => {
+  let nextId = 0;
+  const timers = new Map();
+  const setTimer = (callback, timeout) => {
+    nextId += 1;
+    timers.set(nextId, { callback, timeout });
+    return nextId;
+  };
+  const clearTimer = (timer) => timers.delete(timer);
+  let idleCount = 0;
+  let absoluteCount = 0;
+  const watchdog = createPdfProgressWatchdog({
+    onIdle: () => { idleCount += 1; },
+    onAbsolute: () => { absoluteCount += 1; },
+    idleTimeoutMs: 60,
+    absoluteTimeoutMs: 300,
+    setTimer,
+    clearTimer,
+  });
+
+  assert.deepEqual(Array.from(timers.values()).map((timer) => timer.timeout), [300, 60]);
+  watchdog.progress();
+  assert.deepEqual(Array.from(timers.values()).map((timer) => timer.timeout), [300, 60]);
+  const idleTimer = Array.from(timers.values()).find((timer) => timer.timeout === 60);
+  idleTimer.callback();
+  assert.equal(idleCount, 1);
+  assert.equal(absoluteCount, 0);
+  watchdog.stop();
+  assert.equal(timers.size, 0);
+});
+
+test('PDF promise deadlines are stage-specific and retryable', async () => {
+  await assert.rejects(
+    withPdfTimeout(new Promise(() => {}), 5, 'printing stalled'),
+    /printing stalled/,
   );
-  assert.equal(
-    calculatePdfReadyTimeout({ days: [{ tasks: Array.from({ length: 2000 }) }] }),
-    180000,
-  );
+  await assert.doesNotReject(withPdfTimeout(Promise.resolve('ready'), 50, 'stalled'));
 });
 
 function withTemporaryDirectories(callback) {
@@ -78,6 +121,24 @@ test('PDF filenames use local minute timestamps, safe titles, and collision suff
     assert.equal(
       path.basename(nextPdfPath(output, 'Plan: North / Hall', date)),
       'Plan_ North _ Hall_2032_04_21_14_07_2.pdf',
+    );
+  });
+});
+
+test('PDF buffers are completed in a temporary file and then published atomically', () => {
+  withTemporaryDirectories(({ output }) => {
+    const pdf = Buffer.from('%PDF-1.7\n%%EOF\n', 'ascii');
+    const target = writePdfBufferAtomically(
+      output,
+      'Plan',
+      pdf,
+      new Date(2032, 3, 21, 14, 7, 59),
+    );
+    assert.deepEqual(fs.readFileSync(target), pdf);
+    assert.equal(fs.readdirSync(output).some((name) => name.endsWith('.tmp')), false);
+    assert.throws(
+      () => writePdfBufferAtomically(output, 'Plan', Buffer.from('invalid')),
+      /invalid PDF/,
     );
   });
 });

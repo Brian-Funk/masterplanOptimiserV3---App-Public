@@ -13,8 +13,9 @@ const {
   pdfExportModulePath,
 } = config;
 const {
+  PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
   buildPdfPrintOptions,
-  calculatePdfReadyTimeout,
+  validatePdfProgress,
 } = require(pdfExportModulePath);
 const debugPath = `${receiptPath}.log`;
 const debug = (message) => fs.appendFileSync(debugPath, `${new Date().toISOString()} ${message}\n`);
@@ -33,9 +34,12 @@ process.on('unhandledRejection', (error) => {
 app.setPath('userData', userDataPath);
 
 let readyResolve;
-const ready = new Promise((resolve) => {
+let readyReject;
+const ready = new Promise((resolve, reject) => {
   readyResolve = resolve;
+  readyReject = reject;
 });
+const progress = [];
 
 ipcMain.handle('get-pdf-export-job', (event, requestedJobId) => {
   if (requestedJobId !== jobId) throw new Error('Unexpected PDF job id');
@@ -44,6 +48,20 @@ ipcMain.handle('get-pdf-export-job', (event, requestedJobId) => {
 ipcMain.handle('notify-pdf-export-ready', (event, requestedJobId) => {
   if (requestedJobId !== jobId) throw new Error('Unexpected PDF readiness id');
   readyResolve();
+  return { success: true };
+});
+ipcMain.handle(
+  'notify-pdf-export-progress',
+  (event, requestedJobId, stage, completed, total) => {
+    if (requestedJobId !== jobId) throw new Error('Unexpected PDF progress id');
+    const item = validatePdfProgress(stage, completed, total);
+    progress.push(item);
+    return item;
+  },
+);
+ipcMain.handle('notify-pdf-export-failed', (event, requestedJobId, code) => {
+  if (requestedJobId !== jobId) throw new Error('Unexpected PDF failure id');
+  readyReject(new Error(`Renderer reported ${code}`));
   return { success: true };
 });
 
@@ -58,6 +76,7 @@ app.whenReady().then(async () => {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
   window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
@@ -68,7 +87,7 @@ app.whenReady().then(async () => {
   });
   const timeout = setTimeout(() => {
     throw new Error('Timed out waiting for the PDF renderer');
-  }, calculatePdfReadyTimeout(payload) + 15000);
+  }, PDF_ABSOLUTE_RENDER_TIMEOUT_MS + 15000);
   await window.loadURL(frontendUrl);
   await window.webContents.executeJavaScript("localStorage.setItem('dark-mode', 'dark')");
   await window.loadURL(`${frontendUrl}/pdf-export?job=${jobId}`);
@@ -119,7 +138,7 @@ app.whenReady().then(async () => {
     : null;
   fs.writeFileSync(
     receiptPath,
-    JSON.stringify({ bodyText, visualState, pageCount, mediaBox, size: pdf.length, outputPath }, null, 2),
+    JSON.stringify({ bodyText, visualState, progress, pageCount, mediaBox, size: pdf.length, outputPath }, null, 2),
   );
   debug('receipt written');
   app.exit(0);

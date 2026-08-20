@@ -7,9 +7,17 @@ const MAX_DAYS = 62;
 const MAX_TASKS_PER_DAY = 2000;
 const MAX_TASK_BYTES_PER_DAY = 1024 * 1024;
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
-const PDF_READY_BASE_TIMEOUT_MS = 30000;
-const PDF_READY_PER_TASK_TIMEOUT_MS = 350;
-const PDF_READY_MAX_TIMEOUT_MS = 180000;
+const PDF_NO_PROGRESS_TIMEOUT_MS = 60 * 1000;
+const PDF_ABSOLUTE_RENDER_TIMEOUT_MS = 5 * 60 * 1000;
+const PDF_PRINT_TIMEOUT_MS = 5 * 60 * 1000;
+const PDF_PROGRESS_STAGES = new Set([
+  'loading',
+  'building',
+  'assets',
+  'layout',
+  'ready',
+  'printing',
+]);
 const RESERVED_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 const PDF_FOOTER_TEMPLATE = `
   <div style="box-sizing:border-box;display:flex;width:100%;align-items:center;justify-content:space-between;padding:0 10mm;color:#6b7280;font-family:'Source Sans 3',Arial,sans-serif;font-size:7.5pt;">
@@ -30,21 +38,78 @@ function buildPdfPrintOptions() {
   };
 }
 
-/**
- * Give Chromium enough time to lay out a real multi-day schedule while keeping
- * a firm upper bound if the hidden renderer never reports readiness.
- */
-function calculatePdfReadyTimeout(payload) {
-  const taskCount = Array.isArray(payload?.days)
-    ? payload.days.reduce(
-      (total, day) => total + (Array.isArray(day?.tasks) ? day.tasks.length : 0),
-      0,
-    )
-    : 0;
-  return Math.min(
-    PDF_READY_MAX_TIMEOUT_MS,
-    PDF_READY_BASE_TIMEOUT_MS + taskCount * PDF_READY_PER_TASK_TIMEOUT_MS,
+function validatePdfProgress(stage, completed, total) {
+  if (!PDF_PROGRESS_STAGES.has(stage)) {
+    throw new Error('Invalid PDF export progress stage.');
+  }
+  if (
+    !Number.isSafeInteger(completed) ||
+    !Number.isSafeInteger(total) ||
+    completed < 0 ||
+    total < 0 ||
+    completed > total
+  ) {
+    throw new Error('Invalid PDF export progress count.');
+  }
+  return { stage, completed, total };
+}
+
+function describePdfProgress(progress) {
+  const validated = validatePdfProgress(
+    progress?.stage,
+    progress?.completed,
+    progress?.total,
   );
+  const count = validated.total > 0
+    ? ` after ${validated.completed}/${validated.total}`
+    : '';
+  return `${validated.stage}${count}`;
+}
+
+function createPdfProgressWatchdog({
+  onIdle,
+  onAbsolute,
+  idleTimeoutMs = PDF_NO_PROGRESS_TIMEOUT_MS,
+  absoluteTimeoutMs = PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+}) {
+  let idleTimer = null;
+  let absoluteTimer = setTimer(onAbsolute, absoluteTimeoutMs);
+
+  const resetIdle = () => {
+    if (idleTimer !== null) clearTimer(idleTimer);
+    idleTimer = setTimer(onIdle, idleTimeoutMs);
+  };
+  resetIdle();
+
+  return {
+    progress() {
+      resetIdle();
+    },
+    stop() {
+      if (idleTimer !== null) clearTimer(idleTimer);
+      if (absoluteTimer !== null) clearTimer(absoluteTimer);
+      idleTimer = null;
+      absoluteTimer = null;
+    },
+  };
+}
+
+function withPdfTimeout(promise, timeoutMs, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function settingsPath(userDataDir) {
@@ -130,6 +195,35 @@ function nextPdfPath(outputDirectory, title, date = new Date()) {
   throw new Error('Could not allocate a unique PDF filename.');
 }
 
+function writePdfBufferAtomically(outputDirectory, title, pdf, date = new Date()) {
+  if (!Buffer.isBuffer(pdf) || pdf.length < 5 || pdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new Error('Chromium returned an invalid PDF document.');
+  }
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const candidate = nextPdfPath(outputDirectory, title, date);
+    const temporary = path.join(
+      path.dirname(candidate),
+      `.${path.basename(candidate)}.${process.pid}.${Date.now()}.${attempt}.tmp`,
+    );
+    let descriptor = null;
+    try {
+      descriptor = fs.openSync(temporary, 'wx', 0o600);
+      fs.writeFileSync(descriptor, pdf);
+      fs.fsyncSync(descriptor);
+      fs.closeSync(descriptor);
+      descriptor = null;
+      fs.renameSync(temporary, candidate);
+      if (process.platform !== 'win32') fs.chmodSync(candidate, 0o600);
+      return candidate;
+    } catch (error) {
+      if (descriptor !== null) fs.closeSync(descriptor);
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+      if (error?.code !== 'EEXIST') throw error;
+    }
+  }
+  throw new Error('Could not allocate a unique PDF filename.');
+}
+
 function validatePdfExportPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('Invalid PDF export request.');
@@ -201,14 +295,21 @@ function validatePdfExportPayload(payload) {
 }
 
 module.exports = {
+  PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
+  PDF_NO_PROGRESS_TIMEOUT_MS,
+  PDF_PRINT_TIMEOUT_MS,
   buildPdfPrintOptions,
-  calculatePdfReadyTimeout,
   clearPdfExportSettings,
+  createPdfProgressWatchdog,
+  describePdfProgress,
   describePdfExportDirectory,
   localTimestamp,
   nextPdfPath,
   readPdfExportSettings,
   sanitisePdfTitle,
   validatePdfExportPayload,
+  validatePdfProgress,
+  withPdfTimeout,
+  writePdfBufferAtomically,
   writePdfExportSettings,
 };

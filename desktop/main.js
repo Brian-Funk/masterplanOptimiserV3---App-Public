@@ -33,12 +33,17 @@ const {
   prepareDesktopUserData,
 } = require('./user-data-paths');
 const {
+  PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
+  PDF_PRINT_TIMEOUT_MS,
   buildPdfPrintOptions,
-  calculatePdfReadyTimeout,
   clearPdfExportSettings,
+  createPdfProgressWatchdog,
+  describePdfProgress,
   describePdfExportDirectory,
-  nextPdfPath,
   validatePdfExportPayload,
+  validatePdfProgress,
+  withPdfTimeout,
+  writePdfBufferAtomically,
   writePdfExportSettings,
 } = require('./pdf-export');
 
@@ -361,25 +366,56 @@ function markPdfJobFailed(jobId, error) {
   }
 }
 
-function waitForPdfDocument(jobId, timeoutMs) {
+function updatePdfJobProgress(jobId, stage, completed, total) {
+  const job = pdfExportJobs.get(jobId);
+  if (!job) throw new Error('PDF export job is unavailable.');
+  const progress = validatePdfProgress(stage, completed, total);
+  job.lastProgress = progress;
+  if (job.progressListener) job.progressListener();
+  appendDiagnosticLog(
+    'main',
+    'log',
+    `Hidden PDF renderer progress: ${describePdfProgress(progress)}.`,
+  );
+  return progress;
+}
+
+function waitForPdfDocument(jobId) {
   const job = pdfExportJobs.get(jobId);
   if (!job) return Promise.reject(new Error('PDF export job is unavailable.'));
   if (job.renderReady) return Promise.resolve();
   if (job.renderError) return Promise.reject(job.renderError);
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (pdfExportJobs.get(jobId) === job) job.readyReject = null;
-      reject(new Error(
-        `The PDF document did not become ready within ${Math.ceil(timeoutMs / 1000)} seconds.`,
-      ));
-    }, timeoutMs);
-    job.readyResolve = () => {
-      clearTimeout(timer);
-      resolve();
+    let settled = false;
+    let watchdog;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      watchdog.stop();
+      job.progressListener = null;
+      job.cancelWait = null;
+      job.readyResolve = null;
+      job.readyReject = null;
+      callback(value);
     };
-    job.readyReject = (error) => {
-      clearTimeout(timer);
-      reject(error);
+    const stage = () => describePdfProgress(job.lastProgress);
+    watchdog = createPdfProgressWatchdog({
+      onIdle: () => finish(
+        reject,
+        new Error(
+          `The PDF renderer made no validated progress for 60 seconds during ${stage()}.`,
+        ),
+      ),
+      onAbsolute: () => finish(
+        reject,
+        new Error(`The PDF renderer exceeded five minutes during ${stage()}.`),
+      ),
+    });
+    job.progressListener = () => watchdog.progress();
+    job.readyResolve = () => finish(resolve);
+    job.readyReject = (error) => finish(reject, error);
+    job.cancelWait = () => {
+      finish(reject, new Error('The PDF renderer was closed before completion.'));
     };
   });
 }
@@ -400,8 +436,10 @@ async function exportSchedulePdf(payload) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
+  const totalDays = validated.days.length;
   const job = {
     payload: validated,
     webContentsId: pdfWindow.webContents.id,
@@ -409,6 +447,10 @@ async function exportSchedulePdf(payload) {
     readyReject: null,
     renderReady: false,
     renderError: null,
+    progressListener: null,
+    cancelWait: null,
+    lastProgress: validatePdfProgress('loading', 0, totalDays),
+    rendererConsoleErrors: 0,
   };
   pdfExportJobs.set(jobId, job);
   const printUrl = `${FRONTEND_URL}/pdf-export?job=${encodeURIComponent(jobId)}`;
@@ -433,32 +475,63 @@ async function exportSchedulePdf(payload) {
       new Error(`The PDF renderer stopped unexpectedly (${details.reason}).`),
     );
   });
+  pdfWindow.webContents.on('console-message', (_event, level) => {
+    if (Number(level) < 3) return;
+    job.rendererConsoleErrors += 1;
+    appendDiagnosticLog(
+      'main',
+      'warn',
+      `Hidden PDF renderer reported a console failure during ${describePdfProgress(job.lastProgress)}.`,
+    );
+  });
   pdfWindow.on('unresponsive', () => {
     appendDiagnosticLog(
       'main',
       'warn',
-      'The hidden PDF renderer is temporarily unresponsive while laying out the document.',
+      `The hidden PDF renderer is unresponsive during ${describePdfProgress(job.lastProgress)}.`,
     );
+  });
+  pdfWindow.on('closed', () => {
+    if (!job.renderReady && !job.renderError) {
+      markPdfJobFailed(jobId, new Error('The PDF renderer closed unexpectedly.'));
+    }
   });
 
   try {
-    await pdfWindow.loadURL(printUrl);
-    await waitForPdfDocument(jobId, calculatePdfReadyTimeout(validated));
-    const pdf = await pdfWindow.webContents.printToPDF(buildPdfPrintOptions());
-    let outputPath = null;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const candidate = nextPdfPath(directory.outputDirectory, validated.title);
-      try {
-        fs.writeFileSync(candidate, pdf, { flag: 'wx', mode: 0o600 });
-        outputPath = candidate;
-        break;
-      } catch (error) {
-        if (error?.code !== 'EEXIST') throw error;
-      }
+    const readiness = waitForPdfDocument(jobId);
+    try {
+      await Promise.all([
+        withPdfTimeout(
+          pdfWindow.loadURL(printUrl),
+          PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
+          'The PDF renderer exceeded five minutes while loading.',
+        ),
+        readiness,
+      ]);
+    } catch (error) {
+      markPdfJobFailed(jobId, error);
+      throw error;
     }
-    if (!outputPath) throw new Error('Could not allocate a unique PDF filename.');
+    if (job.rendererConsoleErrors > 0) {
+      throw new Error(
+        `The PDF renderer reported an error during ${describePdfProgress(job.lastProgress)}.`,
+      );
+    }
+    updatePdfJobProgress(jobId, 'printing', 0, 1);
+    const pdf = await withPdfTimeout(
+      pdfWindow.webContents.printToPDF(buildPdfPrintOptions()),
+      PDF_PRINT_TIMEOUT_MS,
+      'Chromium did not finish printing the PDF within five minutes.',
+    );
+    updatePdfJobProgress(jobId, 'printing', 1, 1);
+    const outputPath = writePdfBufferAtomically(
+      directory.outputDirectory,
+      validated.title,
+      pdf,
+    );
     return { success: true, path: outputPath, fileName: path.basename(outputPath) };
   } finally {
+    if (job.cancelWait) job.cancelWait();
     pdfExportJobs.delete(jobId);
     if (!pdfWindow.isDestroyed()) pdfWindow.destroy();
   }
@@ -1171,6 +1244,18 @@ ipcMain.handle('notify-pdf-export-ready', async (event, jobId) => {
   }
   return { success: true };
 });
+
+ipcMain.handle(
+  'notify-pdf-export-progress',
+  async (event, jobId, stage, completed, total) => {
+    assertTrustedIpcSender(event);
+    const job = typeof jobId === 'string' ? pdfExportJobs.get(jobId) : null;
+    if (!job || job.webContentsId !== event.sender.id) {
+      throw new Error('PDF export progress signal is invalid.');
+    }
+    return updatePdfJobProgress(jobId, stage, completed, total);
+  },
+);
 
 ipcMain.handle('notify-pdf-export-failed', async (event, jobId, code) => {
   assertTrustedIpcSender(event);
