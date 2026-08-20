@@ -1,24 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  assertPdfDocumentReady,
-  waitForBoundedPaint,
-} from "@/lib/pdfExportReadiness";
+import { assertPdfDocumentReady } from "@/lib/pdfExportReadiness";
 
 describe("hidden PDF renderer readiness", () => {
-  it("falls back when animation frames are suspended", async () => {
-    vi.useFakeTimers();
-    const promise = waitForBoundedPaint(
-      250,
-      () => 1,
-      window.setTimeout.bind(window),
-      window.clearTimeout.bind(window),
-    );
-    await vi.advanceTimersByTimeAsync(250);
-    await expect(promise).resolves.toBeUndefined();
-    vi.useRealTimers();
-  });
-
-  it("accepts only complete, measurable day and task layouts", () => {
+  it("accepts a synchronously completed, measurable day and task layout", () => {
     document.body.innerHTML = `
       <section class="pdf-day">
         <div data-pdf-calendar-frame><div data-task-id="1"></div></div>

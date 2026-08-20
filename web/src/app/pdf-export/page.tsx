@@ -10,31 +10,10 @@ import {
 import {
   assertPdfDocumentReady,
   PdfReadinessError,
-  waitForBoundedPaint,
 } from "@/lib/pdfExportReadiness";
 import { buildPdfTimelineLayout } from "@/lib/pdfTimeline";
 
 type PdfJob = PdfExportPayload & { generatedAt: string };
-
-function waitForImages(): Promise<void> {
-  const pending = Array.from(document.images)
-    .filter((image) => !image.complete)
-    .map(
-      (image) =>
-        new Promise<void>((resolve) => {
-          image.addEventListener("load", () => resolve(), { once: true });
-          image.addEventListener("error", () => resolve(), { once: true });
-        }),
-    );
-  return Promise.all(pending).then(() => undefined);
-}
-
-function waitAtMost(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
-  return Promise.race([
-    promise.then(() => undefined),
-    new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs)),
-  ]);
-}
 
 /** Fit the visual timeline to portrait width without shrinking it to a fixed page height. */
 function fitCalendars() {
@@ -270,18 +249,16 @@ export default function PdfExportPage() {
     let cancelled = false;
     const ready = async () => {
       await progress("building", totalDays);
-      await progress("assets", 0);
-      // `document.fonts.ready` can remain pending forever in a hidden Electron
-      // renderer even with background throttling disabled. Printing does not
-      // require that promise: Chromium uses the declared local fallback until
-      // the self-hosted face is available. Keep the bounded image wait, then
-      // validate the complete document and its measurable layout below.
-      await waitAtMost(waitForImages(), 15000);
+      // Hidden Chromium can suspend renderer timers and asset-settling promises
+      // indefinitely. The PDF route contains no remote assets; use whatever
+      // self-hosted font/image is already available and let Chromium fall back
+      // safely when it is not. Printing itself performs the final paint.
       await progress("assets", totalDays);
-      await waitForBoundedPaint();
       await progress("layout", 0);
       fitCalendars();
-      await waitForBoundedPaint();
+      // Force synchronous style and layout calculation. Do not wait for an
+      // animation frame: hidden windows are allowed to suspend them forever.
+      void document.body.getBoundingClientRect();
       assertPdfDocumentReady(document, totalDays, totalTasks);
       await progress("layout", totalDays);
       if (!cancelled && jobId && window.electron?.notifyPdfExportReady) {
