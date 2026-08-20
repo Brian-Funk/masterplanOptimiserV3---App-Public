@@ -211,8 +211,11 @@ async def optimize_day(request: OptimizeDayRequest):
                 arrive_time=tr['arrive_time'],
                 capacity=tr['capacity'],
                 requirements=tr.get('required_capabilities', {}),
+                optional_capacity_slots=tr.get('optional_capacity_slots', 0),
                 field_requirements=tr.get('field_requirements', {}),
                 transferee_field_id=tr.get('transferee_field_id'),
+                locked_person_ids=tr.get('locked_person_ids', []),
+                person_field_assignments=tr.get('person_field_assignments', {}),
                 counts_towards_work_time=tr.get('counts_towards_work_time', True) is not False,
             ))
         
