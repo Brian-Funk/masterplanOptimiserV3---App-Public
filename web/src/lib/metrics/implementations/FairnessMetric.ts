@@ -7,7 +7,10 @@ import {
   LineChartVisualization,
   MetricSettings,
 } from "../MetricInterface";
-import { countsTowardsWorkTime } from "../metricScheduleData";
+import {
+  countsTowardsWorkTime,
+  personCountsTowardsWorkTime,
+} from "../metricScheduleData";
 
 /**
  * Fairness Metric - standard deviation of total working hours across people.
@@ -147,7 +150,7 @@ export class FairnessMetric extends BaseMetric {
       const hoursPerPerson = populationIds.map((pid) => {
         let total = 0;
         for (const task of dayTasks) {
-          if (task.person_ids.includes(pid)) {
+          if (personCountsTowardsWorkTime(task, pid)) {
             total += this.getTaskDuration(task);
           }
         }

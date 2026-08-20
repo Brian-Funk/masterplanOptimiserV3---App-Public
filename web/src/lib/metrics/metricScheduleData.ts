@@ -79,6 +79,24 @@ export function countsTowardsWorkTime(task: TaskInstance): boolean {
   return task.counts_towards_work_time !== false;
 }
 
+/**
+ * Return the people whose assignment role consumes working time. Older saved
+ * optimisation results do not carry role-level information, so they retain
+ * the historical all-riders-counted behaviour.
+ */
+export function workingPersonIds(task: TaskInstance): number[] {
+  return dedupeMetricIds(task.working_person_ids ?? task.person_ids);
+}
+
+export function personCountsTowardsWorkTime(
+  task: TaskInstance,
+  personId: number,
+): boolean {
+  return (
+    countsTowardsWorkTime(task) && workingPersonIds(task).includes(personId)
+  );
+}
+
 function addDays(date: string, days: number): string {
   const [year, month, day] = date.split("-").map(Number);
   const d = new Date(Date.UTC(year, month - 1, day + days));
@@ -267,10 +285,15 @@ function addAssignmentSource(
 export function extractMetricPersonAssignments(
   task: ApiTaskInstance,
   fieldTypes?: FieldTypeMap,
-): { ids: number[]; sources: Record<number, string[]> } {
+): {
+  ids: number[];
+  workingIds: number[];
+  sources: Record<number, string[]>;
+} {
   const schedule = getScheduleBlock(task);
   if (schedule) {
     const ids: number[] = [];
+    const workingIds: number[] = [];
     const sourceMap = new Map<number, Set<string>>();
     if (Array.isArray(schedule.assigned_persons)) {
       const assignedIds = uniqueNumbers(schedule.assigned_persons);
@@ -278,19 +301,30 @@ export function extractMetricPersonAssignments(
       addAssignmentSource(sourceMap, assignedIds, "assigned_persons");
     }
     const fieldAssignments = schedule.field_assignments;
+    let hasRoleAssignments = false;
     if (fieldAssignments && typeof fieldAssignments === "object") {
       for (const [fieldId, value] of Object.entries(
         fieldAssignments as Record<string, unknown>,
       )) {
         if (Array.isArray(value)) {
+          hasRoleAssignments = true;
           const fieldIds = uniqueNumbers(value);
           ids.push(...fieldIds);
           addAssignmentSource(sourceMap, fieldIds, `field:${fieldId}`);
+          const fieldType = fieldTypes?.get(fieldId);
+          if (fieldType !== "transferee" && fieldId !== "_transferee") {
+            workingIds.push(...fieldIds);
+          }
         }
       }
     }
+    const assignedIds = uniqueNumbers(ids);
     return {
-      ids: uniqueNumbers(ids),
+      ids: assignedIds,
+      workingIds:
+        task.is_transfer && hasRoleAssignments
+          ? uniqueNumbers(workingIds)
+          : assignedIds,
       sources: Object.fromEntries(
         Array.from(sourceMap.entries()).map(([personId, values]) => [
           personId,
@@ -323,6 +357,7 @@ export function extractMetricPersonAssignments(
 
   return {
     ids: uniqueNumbers(ids),
+    workingIds: uniqueNumbers(ids),
     sources: Object.fromEntries(
       Array.from(sourceMap.entries()).map(([personId, values]) => [
         personId,
@@ -406,7 +441,7 @@ export function calculatePersonHoursByDay(
     const date = task.date || task.start_time.slice(0, 10);
     if (!byDay.has(date)) byDay.set(date, new Map());
     const dayHours = byDay.get(date)!;
-    for (const personId of dedupeMetricIds(task.person_ids)) {
+    for (const personId of workingPersonIds(task)) {
       dayHours.set(personId, (dayHours.get(personId) || 0) + duration);
     }
   }
@@ -423,7 +458,7 @@ export function getPersonTaskBreakdownForDay(
       (task) =>
         countsTowardsWorkTime(task) &&
         task.date === date &&
-        task.person_ids.includes(personId),
+        personCountsTowardsWorkTime(task, personId),
     )
     .map((task) => ({
       taskId: task.id,
@@ -562,6 +597,7 @@ export function buildMetricScheduleData(
     tasks.push({
       id: String(task.id),
       person_ids: assignedPersonIds.filter((id) => personIds.has(id)),
+      working_person_ids: assignments.workingIds.filter((id) => personIds.has(id)),
       task_id: (task as any).task_id || task.id,
       task_type_id: task.task_type_id || 0,
       capability_ids: extractMetricCapabilityIds(task, fieldTypes),

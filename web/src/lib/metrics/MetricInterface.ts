@@ -54,6 +54,11 @@ export type ScheduleSnapshot = ScheduleData;
 export interface TaskInstance {
   id: string;
   person_ids: number[]; // all assigned person IDs
+  /**
+   * People whose role on this assignment consumes working time. When absent,
+   * metrics retain the historical all-assigned-people behaviour.
+   */
+  working_person_ids?: number[];
   task_id: number;
   task_type_id: number; // links to taskTypes
   capability_ids: number[]; // actual capability IDs required

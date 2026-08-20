@@ -8,7 +8,10 @@ import {
   RadarVisualization,
   TaskInstance,
 } from "../MetricInterface";
-import { countsTowardsWorkTime } from "../metricScheduleData";
+import {
+  countsTowardsWorkTime,
+  personCountsTowardsWorkTime,
+} from "../metricScheduleData";
 
 /**
  * Workload Spider Graph - per-person multi-dimensional radar chart.
@@ -70,7 +73,7 @@ export class WorkloadSpiderMetric extends BaseMetric {
         t.person_ids.includes(personId),
       );
 
-      const stats = this.computeStats(personTasks);
+      const stats = this.computeStats(personTasks, personId);
 
       const colorKey = `person-${personId}`;
       const color =
@@ -107,7 +110,7 @@ export class WorkloadSpiderMetric extends BaseMetric {
         const memberTasks = schedule.tasks.filter((t) =>
           t.person_ids.includes(member.id),
         );
-        const stats = this.computeStats(memberTasks);
+        const stats = this.computeStats(memberTasks, member.id);
         totalAssignments += stats.assignments;
         totalHours += stats.hours;
         totalBreaks += stats.breaks;
@@ -147,7 +150,7 @@ export class WorkloadSpiderMetric extends BaseMetric {
         const tasks = schedule.tasks.filter((t) =>
           t.person_ids.includes(person.id),
         );
-        const stats = this.computeStats(tasks);
+        const stats = this.computeStats(tasks, person.id);
         totalAssignments += stats.assignments;
         totalHours += stats.hours;
         totalBreaks += stats.breaks;
@@ -180,7 +183,7 @@ export class WorkloadSpiderMetric extends BaseMetric {
 
   // ── helpers ──
 
-  private computeStats(tasks: TaskInstance[]): {
+  private computeStats(tasks: TaskInstance[], personId: number): {
     assignments: number;
     hours: number;
     breaks: number;
@@ -189,7 +192,7 @@ export class WorkloadSpiderMetric extends BaseMetric {
 
     let hours = 0;
     for (const task of tasks) {
-      if (!countsTowardsWorkTime(task)) continue;
+      if (!personCountsTowardsWorkTime(task, personId)) continue;
       hours += this.getTaskDuration(task);
     }
     hours = Number(hours.toFixed(2));

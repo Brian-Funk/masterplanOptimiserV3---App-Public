@@ -8,6 +8,10 @@ import {
   RadarVisualization,
   TaskInstance,
 } from "../MetricInterface";
+import {
+  countsTowardsWorkTime,
+  personCountsTowardsWorkTime,
+} from "../metricScheduleData";
 
 /**
  * Task Type Count Spider - radar chart with one axis per task type.
@@ -242,7 +246,7 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
       if (!person) continue;
 
       const personTasks = schedule.tasks.filter((t) =>
-        t.person_ids.includes(personId),
+        personCountsTowardsWorkTime(t, personId),
       );
 
       const values = this.hoursByType(personTasks, taskTypes);
@@ -276,7 +280,7 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
       const totals = new Array(taskTypes.length).fill(0);
       for (const member of members) {
         const memberTasks = schedule.tasks.filter((t) =>
-          t.person_ids.includes(member.id),
+          personCountsTowardsWorkTime(t, member.id),
         );
         const memberHours = this.hoursByType(memberTasks, taskTypes);
         for (let i = 0; i < totals.length; i++) {
@@ -308,7 +312,7 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
 
       for (const person of schedule.people) {
         const tasks = schedule.tasks.filter((t) =>
-          t.person_ids.includes(person.id),
+          personCountsTowardsWorkTime(t, person.id),
         );
         const hours = this.hoursByType(tasks, taskTypes);
         for (let i = 0; i < totals.length; i++) {
@@ -352,7 +356,7 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
     return taskTypes.map((tt) => {
       let hours = 0;
       for (const t of tasks) {
-        if (t.task_type_id === tt.id) {
+        if (t.task_type_id === tt.id && countsTowardsWorkTime(t)) {
           hours += this.getTaskDuration(t);
         }
       }

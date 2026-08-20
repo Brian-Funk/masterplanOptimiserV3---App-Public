@@ -12,6 +12,8 @@ import {
   findMaxHoursViolations,
   findWorstMaxHoursViolation,
   countsTowardsWorkTime,
+  personCountsTowardsWorkTime,
+  workingPersonIds,
 } from "../metricScheduleData";
 
 const DEFAULT_LINE_COLORS = [
@@ -84,7 +86,7 @@ export class AverageWorkingHoursMetric extends BaseMetric {
         if (!person) return;
 
         const personTasks = schedule.tasks.filter((task) =>
-          task.person_ids.includes(personId),
+          personCountsTowardsWorkTime(task, personId),
         );
 
         const hoursByDay = this.groupTasksByDay(personTasks);
@@ -257,9 +259,10 @@ export class AverageWorkingHoursMetric extends BaseMetric {
       const date =
         task.date || new Date(task.start_time).toISOString().split("T")[0];
       const duration = this.getTaskDuration(task);
+      const workingIds = workingPersonIds(task);
       const personWeight = personFilter
-        ? task.person_ids.filter((id) => personFilter.has(id)).length
-        : task.person_ids.length;
+        ? workingIds.filter((id) => personFilter.has(id)).length
+        : workingIds.length;
       if (duration > 0) {
         hoursByDay.set(
           date,
@@ -331,7 +334,7 @@ export class AbsoluteWorkingHoursMetric extends BaseMetric {
         if (!person) return;
 
         const personTasks = schedule.tasks.filter((task) =>
-          task.person_ids.includes(personId),
+          personCountsTowardsWorkTime(task, personId),
         );
 
         const hoursByDay = this.groupTasksByDay(personTasks);
@@ -464,9 +467,10 @@ export class AbsoluteWorkingHoursMetric extends BaseMetric {
       const date =
         task.date || new Date(task.start_time).toISOString().split("T")[0];
       const duration = this.getTaskDuration(task);
+      const workingIds = workingPersonIds(task);
       const personWeight = personFilter
-        ? task.person_ids.filter((id) => personFilter.has(id)).length
-        : task.person_ids.length;
+        ? workingIds.filter((id) => personFilter.has(id)).length
+        : workingIds.length;
       if (duration > 0) {
         hoursByDay.set(
           date,
