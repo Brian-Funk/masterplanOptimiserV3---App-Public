@@ -8,6 +8,12 @@ const MAX_TASKS_PER_DAY = 2000;
 const MAX_TASK_BYTES_PER_DAY = 1024 * 1024;
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const PDF_NO_PROGRESS_TIMEOUT_MS = 60 * 1000;
+// Chromium can spend well over a minute in one synchronous style/layout pass
+// for a real seven-day schedule. During that pass the renderer cannot emit a
+// heartbeat even though it is still doing useful work. Keep the short watchdog
+// for I/O stages, but let CPU-bound construction/layout run until shortly
+// before the independent five-minute absolute deadline.
+const PDF_LAYOUT_NO_PROGRESS_TIMEOUT_MS = 4 * 60 * 1000;
 const PDF_ABSOLUTE_RENDER_TIMEOUT_MS = 5 * 60 * 1000;
 const PDF_PRINT_TIMEOUT_MS = 5 * 60 * 1000;
 const PDF_PROGRESS_STAGES = new Set([
@@ -66,6 +72,17 @@ function describePdfProgress(progress) {
   return `${validated.stage}${count}`;
 }
 
+function pdfProgressIdleTimeout(progress) {
+  const validated = validatePdfProgress(
+    progress?.stage,
+    progress?.completed,
+    progress?.total,
+  );
+  return validated.stage === 'building' || validated.stage === 'layout'
+    ? PDF_LAYOUT_NO_PROGRESS_TIMEOUT_MS
+    : PDF_NO_PROGRESS_TIMEOUT_MS;
+}
+
 function createPdfProgressWatchdog({
   onIdle,
   onAbsolute,
@@ -77,15 +94,15 @@ function createPdfProgressWatchdog({
   let idleTimer = null;
   let absoluteTimer = setTimer(onAbsolute, absoluteTimeoutMs);
 
-  const resetIdle = () => {
+  const resetIdle = (timeoutMs = idleTimeoutMs) => {
     if (idleTimer !== null) clearTimer(idleTimer);
-    idleTimer = setTimer(onIdle, idleTimeoutMs);
+    idleTimer = setTimer(onIdle, timeoutMs);
   };
   resetIdle();
 
   return {
-    progress() {
-      resetIdle();
+    progress(nextIdleTimeoutMs = idleTimeoutMs) {
+      resetIdle(nextIdleTimeoutMs);
     },
     stop() {
       if (idleTimer !== null) clearTimer(idleTimer);
@@ -296,6 +313,7 @@ function validatePdfExportPayload(payload) {
 
 module.exports = {
   PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
+  PDF_LAYOUT_NO_PROGRESS_TIMEOUT_MS,
   PDF_NO_PROGRESS_TIMEOUT_MS,
   PDF_PRINT_TIMEOUT_MS,
   buildPdfPrintOptions,
@@ -305,6 +323,7 @@ module.exports = {
   describePdfExportDirectory,
   localTimestamp,
   nextPdfPath,
+  pdfProgressIdleTimeout,
   readPdfExportSettings,
   sanitisePdfTitle,
   validatePdfExportPayload,

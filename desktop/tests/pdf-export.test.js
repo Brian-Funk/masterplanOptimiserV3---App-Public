@@ -12,6 +12,7 @@ const {
   describePdfProgress,
   localTimestamp,
   nextPdfPath,
+  pdfProgressIdleTimeout,
   sanitisePdfTitle,
   validatePdfExportPayload,
   validatePdfProgress,
@@ -43,6 +44,13 @@ test('PDF progress accepts only bounded safe stages and counts', () => {
   assert.throws(() => validatePdfProgress('layout', 0.5, 1), /count/);
 });
 
+test('PDF progress allows synchronous construction and layout to reach the absolute deadline', () => {
+  assert.equal(pdfProgressIdleTimeout({ stage: 'loading', completed: 0, total: 7 }), 60_000);
+  assert.equal(pdfProgressIdleTimeout({ stage: 'assets', completed: 0, total: 7 }), 60_000);
+  assert.equal(pdfProgressIdleTimeout({ stage: 'building', completed: 7, total: 7 }), 240_000);
+  assert.equal(pdfProgressIdleTimeout({ stage: 'layout', completed: 0, total: 7 }), 240_000);
+});
+
 test('PDF progress renews the idle watchdog without extending the absolute deadline', () => {
   let nextId = 0;
   const timers = new Map();
@@ -72,6 +80,31 @@ test('PDF progress renews the idle watchdog without extending the absolute deadl
   assert.equal(absoluteCount, 0);
   watchdog.stop();
   assert.equal(timers.size, 0);
+});
+
+test('PDF watchdog adopts a stage-specific idle deadline without moving the absolute one', () => {
+  let nextId = 0;
+  const timers = new Map();
+  const setTimer = (callback, timeout) => {
+    nextId += 1;
+    timers.set(nextId, { callback, timeout });
+    return nextId;
+  };
+  const clearTimer = (timer) => timers.delete(timer);
+  const watchdog = createPdfProgressWatchdog({
+    onIdle: () => undefined,
+    onAbsolute: () => undefined,
+    idleTimeoutMs: 60,
+    absoluteTimeoutMs: 300,
+    setTimer,
+    clearTimer,
+  });
+
+  watchdog.progress(240);
+  assert.deepEqual(Array.from(timers.values()).map((timer) => timer.timeout), [300, 240]);
+  watchdog.progress(60);
+  assert.deepEqual(Array.from(timers.values()).map((timer) => timer.timeout), [300, 60]);
+  watchdog.stop();
 });
 
 test('PDF promise deadlines are stage-specific and retryable', async () => {

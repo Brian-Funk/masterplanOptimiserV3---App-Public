@@ -40,6 +40,7 @@ const {
   createPdfProgressWatchdog,
   describePdfProgress,
   describePdfExportDirectory,
+  pdfProgressIdleTimeout,
   validatePdfExportPayload,
   validatePdfProgress,
   withPdfTimeout,
@@ -380,6 +381,15 @@ function updatePdfJobProgress(jobId, stage, completed, total) {
   return progress;
 }
 
+function describePdfWorkload(job) {
+  return `${job.dayCount} day${job.dayCount === 1 ? '' : 's'}, ${job.taskCount} task${job.taskCount === 1 ? '' : 's'}`;
+}
+
+function describePdfIdleDuration(milliseconds) {
+  const seconds = Math.round(milliseconds / 1000);
+  return seconds >= 120 ? `${Math.round(seconds / 60)} minutes` : `${seconds} seconds`;
+}
+
 function waitForPdfDocument(jobId) {
   const job = pdfExportJobs.get(jobId);
   if (!job) return Promise.reject(new Error('PDF export job is unavailable.'));
@@ -399,19 +409,21 @@ function waitForPdfDocument(jobId) {
       callback(value);
     };
     const stage = () => describePdfProgress(job.lastProgress);
+    const idleTimeout = () => pdfProgressIdleTimeout(job.lastProgress);
     watchdog = createPdfProgressWatchdog({
       onIdle: () => finish(
         reject,
         new Error(
-          `The PDF renderer made no validated progress for 60 seconds during ${stage()}.`,
+          `The PDF renderer made no validated progress for ${describePdfIdleDuration(idleTimeout())} during ${stage()} (${describePdfWorkload(job)}).`,
         ),
       ),
       onAbsolute: () => finish(
         reject,
-        new Error(`The PDF renderer exceeded five minutes during ${stage()}.`),
+        new Error(`The PDF renderer exceeded five minutes during ${stage()} (${describePdfWorkload(job)}).`),
       ),
+      idleTimeoutMs: idleTimeout(),
     });
-    job.progressListener = () => watchdog.progress();
+    job.progressListener = () => watchdog.progress(idleTimeout());
     job.readyResolve = () => finish(resolve);
     job.readyReject = (error) => finish(reject, error);
     job.cancelWait = () => {
@@ -440,6 +452,7 @@ async function exportSchedulePdf(payload) {
     },
   });
   const totalDays = validated.days.length;
+  const totalTasks = validated.days.reduce((sum, day) => sum + day.tasks.length, 0);
   const job = {
     payload: validated,
     webContentsId: pdfWindow.webContents.id,
@@ -451,6 +464,8 @@ async function exportSchedulePdf(payload) {
     cancelWait: null,
     lastProgress: validatePdfProgress('loading', 0, totalDays),
     rendererConsoleErrors: 0,
+    dayCount: totalDays,
+    taskCount: totalTasks,
   };
   pdfExportJobs.set(jobId, job);
   const printUrl = `${FRONTEND_URL}/pdf-export?job=${encodeURIComponent(jobId)}`;
