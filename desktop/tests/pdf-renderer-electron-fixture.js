@@ -1,27 +1,41 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, session } = require('electron');
 
 const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const {
   payloadPath,
-  outputPath,
   receiptPath,
-  frontendUrl,
+  outputDirectory,
   userDataPath,
   preloadPath,
   pdfExportModulePath,
+  pdfExportServiceModulePath,
 } = config;
+const { writePdfExportSettings } = require(pdfExportModulePath);
 const {
-  PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
-  buildPdfPrintOptions,
-  validatePdfProgress,
-} = require(pdfExportModulePath);
+  createPdfExportManager,
+  registerPdfExportIpc,
+  registerPdfProtocolScheme,
+} = require(pdfExportServiceModulePath);
+const { PDFDocument } = require(path.join(
+  path.dirname(pdfExportServiceModulePath),
+  'node_modules',
+  'pdf-lib',
+));
+
 const debugPath = `${receiptPath}.log`;
 const debug = (message) => fs.appendFileSync(debugPath, `${new Date().toISOString()} ${message}\n`);
-debug(`fixture started: ${JSON.stringify({ frontendUrl, userDataPath, preloadPath })}`);
 const payload = JSON.parse(fs.readFileSync(payloadPath, 'utf8'));
-const jobId = 'pdf-electron-integration';
+const safeProgress = [];
+
+registerPdfProtocolScheme(protocol);
+app.setPath('userData', userDataPath);
+// CI and restricted desktop runners may not expose a usable GPU process.
+// PDF rendering is intentionally deterministic and does not require hardware
+// acceleration, so keep this production-handler fixture on Chromium's software path.
+app.disableHardwareAcceleration();
+
 process.on('uncaughtException', (error) => {
   debug(`uncaught: ${error.stack || error}`);
   app.exit(1);
@@ -31,118 +45,89 @@ process.on('unhandledRejection', (error) => {
   app.exit(1);
 });
 
-app.setPath('userData', userDataPath);
-
-let readyResolve;
-let readyReject;
-const ready = new Promise((resolve, reject) => {
-  readyResolve = resolve;
-  readyReject = reject;
-});
-const progress = [];
-
-ipcMain.handle('get-pdf-export-job', (event, requestedJobId) => {
-  if (requestedJobId !== jobId) throw new Error('Unexpected PDF job id');
-  return payload;
-});
-ipcMain.handle('notify-pdf-export-ready', (event, requestedJobId) => {
-  if (requestedJobId !== jobId) throw new Error('Unexpected PDF readiness id');
-  readyResolve();
-  return { success: true };
-});
-ipcMain.handle(
-  'notify-pdf-export-progress',
-  (event, requestedJobId, stage, completed, total) => {
-    if (requestedJobId !== jobId) throw new Error('Unexpected PDF progress id');
-    const item = validatePdfProgress(stage, completed, total);
-    progress.push(item);
-    return item;
-  },
-);
-ipcMain.handle('notify-pdf-export-failed', (event, requestedJobId, code) => {
-  if (requestedJobId !== jobId) throw new Error('Unexpected PDF failure id');
-  readyReject(new Error(`Renderer reported ${code}`));
-  return { success: true };
-});
+async function waitForCompletion(window, jobId) {
+  const deadline = Date.now() + 360_000;
+  while (Date.now() < deadline) {
+    const status = await window.webContents.executeJavaScript(
+      `window.electron.getSchedulePdfExportStatus(${JSON.stringify(jobId)})`,
+      true,
+    );
+    safeProgress.push(status);
+    if (status.state === 'completed') return status;
+    if (status.state === 'failed' || status.state === 'cancelled') {
+      throw new Error(JSON.stringify(status.error || { state: status.state }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Timed out waiting for production PDF job completion');
+}
 
 app.whenReady().then(async () => {
-  debug('app ready');
+  debug('fixture ready');
+  app.on('child-process-gone', (_event, details) => {
+    debug(`child-process-gone ${JSON.stringify(details)}`);
+  });
+  writePdfExportSettings(userDataPath, outputDirectory);
+  const manager = createPdfExportManager({
+    BrowserWindow,
+    electronSession: session,
+    getUserDataDirectory: () => userDataPath,
+    appDirectory: path.dirname(pdfExportServiceModulePath),
+    resourcesDirectory: process.resourcesPath,
+    packaged: false,
+    logger: (entry) => safeProgress.push({ diagnostic: entry }),
+  });
+  registerPdfExportIpc({ ipcMain, manager, authorise: () => undefined });
+
   const window = new BrowserWindow({
-    width: 1400,
-    height: 990,
-    show: false,
+    width: 520,
+    height: 360,
+    show: true,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      backgroundThrottling: false,
     },
   });
-  window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    debug(`renderer console ${level}: ${message} (${sourceId}:${line})`);
-  });
   window.webContents.on('did-fail-load', (_event, code, description, url) => {
-    debug(`did-fail-load ${code}: ${description} ${url}`);
+    debug(`did-fail-load ${code} ${description} ${url}`);
   });
-  const timeout = setTimeout(() => {
-    throw new Error('Timed out waiting for the PDF renderer');
-  }, PDF_ABSOLUTE_RENDER_TIMEOUT_MS + 15000);
-  await window.loadURL(frontendUrl);
-  await window.webContents.executeJavaScript("localStorage.setItem('dark-mode', 'dark')");
-  await window.loadURL(`${frontendUrl}/pdf-export?job=${jobId}`);
-  debug('route loaded');
-  await ready;
-  debug('renderer ready');
-  clearTimeout(timeout);
-  const bodyText = await window.webContents.executeJavaScript('document.body.innerText');
-  const visualState = await window.webContents.executeJavaScript(`(() => {
-    const logo = document.querySelector('.pdf-brand img');
-    let logoHasColour = false;
-    if (logo?.complete && logo.naturalWidth > 0) {
-      const canvas = document.createElement('canvas');
-      canvas.width = logo.naturalWidth;
-      canvas.height = logo.naturalHeight;
-      const context = canvas.getContext('2d');
-      context.drawImage(logo, 0, 0);
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-      for (let index = 0; index < pixels.length; index += 4) {
-        const red = pixels[index];
-        const green = pixels[index + 1];
-        const blue = pixels[index + 2];
-        const alpha = pixels[index + 3];
-        if (alpha > 32 && Math.max(red, green, blue) - Math.min(red, green, blue) > 24) {
-          logoHasColour = true;
-          break;
-        }
-      }
-    }
-    return {
-      rootClassName: document.documentElement.className,
-      background: getComputedStyle(document.body).backgroundColor,
-      fontFamily: getComputedStyle(document.querySelector('.pdf-document')).fontFamily,
-      logoReady: Boolean(logo?.complete),
-      logoHasColour,
-      detailRows: document.querySelectorAll('[data-pdf-task-reference]').length,
-    };
-  })()`);
-  const pdf = await window.webContents.printToPDF(buildPdfPrintOptions());
-  fs.writeFileSync(outputPath, pdf, { flag: 'wx' });
-  debug(`pdf written: ${pdf.length}`);
-  const source = pdf.toString('latin1');
-  debug('pdf source decoded');
-  const pageCount = (source.match(/\/Type\s*\/Page(?!s)/g) || []).length;
-  const mediaBoxMatch = source.match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/);
-  const mediaBox = mediaBoxMatch
-    ? { width: Number(mediaBoxMatch[1]), height: Number(mediaBoxMatch[2]) }
-    : null;
-  fs.writeFileSync(
-    receiptPath,
-    JSON.stringify({ bodyText, visualState, progress, pageCount, mediaBox, size: pdf.length, outputPath }, null, 2),
+  window.webContents.on('render-process-gone', (_event, details) => {
+    debug(`render-process-gone ${JSON.stringify(details)}`);
+  });
+  // Use an ordinary local initiator document just as the production app does.
+  // It contains no schedule data; the payload crosses only the production IPC.
+  const initiatorPath = path.join(path.dirname(process.argv[2]), 'initiator.html');
+  fs.writeFileSync(initiatorPath, '<!doctype html><meta charset="utf-8"><title>PDF integration</title>');
+  await window.loadFile(initiatorPath);
+  const started = await window.webContents.executeJavaScript(
+    `window.electron.startSchedulePdfExport(${JSON.stringify(payload)})`,
+    true,
   );
-  debug('receipt written');
+  debug(`job started ${started.jobId}`);
+  const completed = await waitForCompletion(window, started.jobId);
+  const outputPath = completed.result.path;
+  const pdf = fs.readFileSync(outputPath);
+  const parsed = await PDFDocument.load(pdf);
+  const pageCount = parsed.getPageCount();
+  const firstPage = parsed.getPage(0);
+  const mediaBox = { width: firstPage.getWidth(), height: firstPage.getHeight() };
+  fs.writeFileSync(receiptPath, JSON.stringify({
+    outputPath,
+    fileName: completed.result.fileName,
+    size: pdf.length,
+    pageCount,
+    mediaBox,
+    progress: safeProgress,
+    dayCount: completed.dayCount,
+    taskCount: completed.taskCount,
+  }, null, 2));
+  manager.shutdown();
+  if (!window.isDestroyed()) window.destroy();
   app.exit(0);
 }).catch((error) => {
-  console.error(error);
+  debug(`safe progress: ${JSON.stringify(safeProgress)}`);
+  debug(`failed: ${error.stack || error}`);
   app.exit(1);
 });
