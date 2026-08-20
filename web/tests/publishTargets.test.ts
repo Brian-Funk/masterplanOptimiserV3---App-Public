@@ -13,10 +13,18 @@ describe("publish destination sets", () => {
     ["google"],
     ["mp-backend"],
     ["pdf"],
+    ["excel"],
     ["google", "mp-backend"],
     ["google", "pdf"],
     ["mp-backend", "pdf"],
+    ["google", "excel"],
+    ["mp-backend", "excel"],
+    ["pdf", "excel"],
     ["google", "mp-backend", "pdf"],
+    ["google", "mp-backend", "excel"],
+    ["google", "pdf", "excel"],
+    ["mp-backend", "pdf", "excel"],
+    ["google", "mp-backend", "pdf", "excel"],
   ];
 
   it("round-trips every destination combination in canonical order", () => {
@@ -42,9 +50,13 @@ describe("publish destination sets", () => {
   it("labels all destinations without ambiguity", () => {
     expect(getPublishTargetsLabel([])).toBe("No publish target");
     expect(getPublishTargetsLabel(["pdf"])).toBe("PDF");
+    expect(getPublishTargetsLabel(["excel"])).toBe("Excel workbook");
     expect(getPublishTargetsLabel(["google", "pdf"])).toBe("Google Calendar and PDF");
     expect(getPublishTargetsLabel(["google", "mp-backend", "pdf"])).toBe(
       "Google Calendar, MP-Backend, and PDF",
+    );
+    expect(getPublishTargetsLabel(["google", "mp-backend", "pdf", "excel"])).toBe(
+      "Google Calendar, MP-Backend, PDF, and Excel workbook",
     );
     expect(hasPublishDestination(["pdf"], "pdf")).toBe(true);
   });

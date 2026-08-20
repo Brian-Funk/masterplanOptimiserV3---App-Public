@@ -73,7 +73,11 @@ export function toPublishPreviewTarget(target: unknown): PublishPreviewTarget | 
   const targets = normalisePublishTargets(target);
   if (targets.length === 1 && targets[0] === "google") return "google_calendar";
   if (targets.length === 1 && targets[0] === "mp-backend") return "mp_backend";
-  if (targets.length === 2 && !targets.includes("pdf")) return "both";
+  if (
+    targets.length === 2 &&
+    targets.includes("google") &&
+    targets.includes("mp-backend")
+  ) return "both";
   return null;
 }
 

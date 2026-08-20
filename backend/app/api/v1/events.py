@@ -33,7 +33,7 @@ class EventCalendarUpdate(BaseModel):
 
 
 class PdfExportSettingsUpdate(BaseModel):
-    """Event-specific presentation title used for local PDF exports."""
+    """Event-specific presentation title used for local document exports."""
 
     title: str
 

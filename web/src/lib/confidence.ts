@@ -118,7 +118,9 @@ export function getPublishTargetConfidence(
   target?: string | string[] | null,
 ): ConfidenceDescriptor {
   const targets = Array.isArray(target)
-    ? target.filter((item) => item === "google" || item === "mp-backend" || item === "pdf")
+    ? target.filter((item) =>
+        item === "google" || item === "mp-backend" || item === "pdf" || item === "excel",
+      )
     : target === "both"
       ? ["google", "mp-backend"]
       : target && target !== "none"
@@ -132,9 +134,12 @@ export function getPublishTargetConfidence(
     };
   }
 
-  const labels = targets.map((item) =>
-    item === "google" ? "Google Calendar" : item === "mp-backend" ? "MP-Backend" : "PDF",
-  );
+  const labels = targets.map((item) => {
+    if (item === "google") return "Google Calendar";
+    if (item === "mp-backend") return "MP-Backend";
+    if (item === "pdf") return "PDF";
+    return "Excel workbook";
+  });
   return {
     level: "ready",
     label: labels.join(", "),

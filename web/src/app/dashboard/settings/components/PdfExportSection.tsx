@@ -11,11 +11,13 @@ import {
   sanitisePdfTitleForPreview,
 } from "@/lib/pdfExport";
 import type { PdfExportDirectoryState } from "@/lib/electronDiagnostics";
+import { isExcelExportAvailable } from "@/lib/excelExport";
 
 interface PdfExportSectionProps {
   eventId?: number;
   eventName?: string;
   onReadinessChange?: (ready: boolean) => void;
+  onExcelReadinessChange?: (ready: boolean) => void;
 }
 
 function previewTimestamp(date = new Date()): string {
@@ -28,10 +30,15 @@ function previewTimestamp(date = new Date()): string {
   ].join("_");
 }
 
+function excelPreviewTimestamp(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}_${String(date.getHours()).padStart(2, "0")}-${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 export function PdfExportSection({
   eventId,
   eventName,
   onReadinessChange,
+  onExcelReadinessChange,
 }: PdfExportSectionProps) {
   const [title, setTitle] = useState(eventName ?? "Optimised Schedule");
   const [customised, setCustomised] = useState(false);
@@ -42,6 +49,7 @@ export function PdfExportSection({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const bridgeAvailable = isPdfExportAvailable();
+  const excelBridgeAvailable = isExcelExportAvailable();
 
   useEffect(() => {
     let cancelled = false;
@@ -76,10 +84,21 @@ export function PdfExportSection({
   }, [eventId, eventName]);
 
   const ready = Boolean(bridgeAvailable && eventId && title.trim() && directory.available);
+  const excelReady = Boolean(
+    excelBridgeAvailable && eventId && title.trim() && directory.available,
+  );
   useEffect(() => onReadinessChange?.(ready), [onReadinessChange, ready]);
+  useEffect(
+    () => onExcelReadinessChange?.(excelReady),
+    [excelReady, onExcelReadinessChange],
+  );
 
   const filenamePreview = useMemo(
     () => `${sanitisePdfTitleForPreview(title || eventName || "Optimised Schedule")}_${previewTimestamp()}.pdf`,
+    [eventName, title],
+  );
+  const excelFilenamePreview = useMemo(
+    () => `${sanitisePdfTitleForPreview(title || eventName || "Optimised Schedule")}_${excelPreviewTimestamp()}.xlsx`,
     [eventName, title],
   );
 
@@ -91,9 +110,9 @@ export function PdfExportSection({
       const saved = await eventsApi.setPdfExportSettings(eventId, title.trim());
       setTitle(saved.title);
       setCustomised(saved.customised);
-      setMessage("PDF title saved for this event.");
+      setMessage("Document title saved for this event.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save the PDF title.");
+      setMessage(error instanceof Error ? error.message : "Could not save the document title.");
     } finally {
       setBusy(false);
     }
@@ -105,9 +124,9 @@ export function PdfExportSection({
     try {
       const selected = await choosePdfExportDirectory();
       setDirectory(selected);
-      if (!selected.cancelled) setMessage("PDF output folder selected for this workstation.");
+      if (!selected.cancelled) setMessage("Local document output folder selected for this workstation.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not select the PDF folder.");
+      setMessage(error instanceof Error ? error.message : "Could not select the document folder.");
     } finally {
       setBusy(false);
     }
@@ -117,7 +136,7 @@ export function PdfExportSection({
     setBusy(true);
     try {
       setDirectory(await clearPdfExportDirectory());
-      setMessage("PDF output folder cleared from this workstation.");
+      setMessage("Local document output folder cleared from this workstation.");
     } finally {
       setBusy(false);
     }
@@ -126,18 +145,18 @@ export function PdfExportSection({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-foreground">PDF</h3>
+        <h3 className="text-lg font-semibold text-foreground">Local document exports</h3>
         <p className="mt-1 text-sm text-foreground-muted">
-          Export the Optimised Schedule as a light A4 portrait document. Every day includes a
-          visual timeline and complete readable task details; dense days continue onto additional
-          pages. The title belongs to this event; the folder stays only on this workstation.
+          Publish the Optimised Schedule as a readable PDF, a structured Excel workbook, or both.
+          The title belongs to this event; the folder stays only on this workstation. Excel files
+          contain the event&apos;s person assignments and are never uploaded automatically.
         </p>
       </div>
 
       <div className="space-y-5 rounded-lg border border-bordercl bg-surface p-5">
         <div>
           <label htmlFor="pdf-export-title" className="text-sm font-medium text-foreground">
-            PDF title
+            Document title
           </label>
           <div className="mt-2 flex gap-2">
             <input
@@ -198,13 +217,24 @@ export function PdfExportSection({
 
         <div className="rounded-lg border border-bordercl bg-surface-alt p-3 text-sm">
           <div className="flex items-center gap-2 font-medium text-foreground">
-            {ready ? <CheckCircle className="h-4 w-4 text-green-600" /> : <FileDown className="h-4 w-4" />}
-            {ready ? "Ready for PDF publishing" : "PDF publishing is not ready"}
+            {ready || excelReady ? <CheckCircle className="h-4 w-4 text-green-600" /> : <FileDown className="h-4 w-4" />}
+            Local publication readiness
           </div>
-          <p className="mt-1 break-all text-xs text-foreground-muted">Preview: {filenamePreview}</p>
-          {!bridgeAvailable && (
+          <div className="mt-2 grid gap-2 text-xs text-foreground-muted sm:grid-cols-2">
+            <div className="rounded border border-bordercl bg-surface px-2 py-2">
+              <span className="font-medium text-foreground">PDF:</span>{" "}
+              {ready ? "ready" : "not ready"}
+              <p className="mt-1 break-all">{filenamePreview}</p>
+            </div>
+            <div className="rounded border border-bordercl bg-surface px-2 py-2">
+              <span className="font-medium text-foreground">Excel:</span>{" "}
+              {excelReady ? "ready" : "not ready"}
+              <p className="mt-1 break-all">{excelFilenamePreview}</p>
+            </div>
+          </div>
+          {!bridgeAvailable && !excelBridgeAvailable && (
             <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              Folder selection and PDF generation are available in the Desktop application only.
+              Folder selection and local document generation are available in the Desktop application only.
             </p>
           )}
         </div>

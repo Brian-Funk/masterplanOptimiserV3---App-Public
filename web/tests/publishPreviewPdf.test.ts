@@ -32,7 +32,7 @@ const task: TaskInstance = {
   optimised: { start_time: "09:00", end_time: "10:00" },
 };
 
-describe("PDF publish previews", () => {
+describe("local-document publish previews", () => {
   it("publishes a selected ready day to PDF only", () => {
     const preview = derivePublishPreview({
       publishTarget: ["pdf"],
@@ -50,17 +50,33 @@ describe("PDF publish previews", () => {
     expect(preview.summary).toContain("published to PDF");
   });
 
-  it("reports all three destinations in a deterministic order", () => {
+  it("reports all four destinations in a deterministic order", () => {
     const preview = derivePublishPreview({
-      publishTarget: ["pdf", "mp-backend", "google"],
+      publishTarget: ["excel", "pdf", "mp-backend", "google"],
       scope: "all_days",
       dayStatuses: [readyDay],
       taskInstances: [task],
     });
 
-    expect(preview.target).toEqual(["google", "mp-backend", "pdf"]);
-    expect(preview.targetLabel).toBe("Google Calendar, MP-Backend, and PDF");
+    expect(preview.target).toEqual(["google", "mp-backend", "pdf", "excel"]);
+    expect(preview.targetLabel).toBe(
+      "Google Calendar, MP-Backend, PDF, and Excel workbook",
+    );
     expect(preview.canPublish).toBe(true);
+  });
+
+  it("publishes an Excel workbook without requiring an external target", () => {
+    const preview = derivePublishPreview({
+      publishTarget: ["excel"],
+      scope: "selected_day",
+      selectedDayId: dayId,
+      dayStatuses: [readyDay],
+      taskInstances: [task],
+    });
+
+    expect(preview.canPublish).toBe(true);
+    expect(preview.targetLabel).toBe("Excel workbook");
+    expect(preview.summary).toContain("published to Excel workbook");
   });
 
   it("blocks publishing when no destination is configured", () => {

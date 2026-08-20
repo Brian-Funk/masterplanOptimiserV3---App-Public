@@ -64,6 +64,7 @@ import { ShortcutSettingsSection } from "./components/ShortcutSettingsSection";
 import { ProcessorEvidenceSection } from "./components/ProcessorEvidenceSection";
 import { PdfExportSection } from "./components/PdfExportSection";
 import { getPdfExportDirectory, isPdfExportAvailable } from "@/lib/pdfExport";
+import { isExcelExportAvailable } from "@/lib/excelExport";
 
 interface ThemeSettings {
   name: string;
@@ -535,12 +536,14 @@ export default function SettingsPage() {
   const [publishTarget, setPublishTarget] = useState<PublishTarget>([]);
   const [publishTargetLoading, setPublishTargetLoading] = useState(false);
   const [pdfReady, setPdfReady] = useState(false);
+  const [excelReady, setExcelReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     getPdfExportDirectory().then((directory) => {
       if (!cancelled) {
         setPdfReady(Boolean(selectedEventId && isPdfExportAvailable() && directory.available));
+        setExcelReady(Boolean(selectedEventId && isExcelExportAvailable() && directory.available));
       }
     });
     return () => {
@@ -741,10 +744,10 @@ export default function SettingsPage() {
     },
     {
       key: "pdf",
-      label: "PDF Export",
+      label: "Local Documents",
       icon: <FileDown className="w-4 h-4" />,
       group: "Integrations",
-      subgroup: "PDF",
+      subgroup: "Local Files",
     },
     {
       key: "publish-target",
@@ -812,7 +815,14 @@ export default function SettingsPage() {
       label: "PDF",
       description: "Create a local light-mode A4 portrait schedule PDF with readable task details.",
       enabled: pdfReady,
-      disabledHint: "Choose an available PDF output folder first.",
+      disabledHint: "Choose an available local document output folder first.",
+    },
+    {
+      value: "excel",
+      label: "Excel workbook",
+      description: "Create a local day-by-day workbook with app colours and person allocations.",
+      enabled: excelReady,
+      disabledHint: "Choose an available local document output folder first.",
     },
   ];
 
@@ -1204,6 +1214,7 @@ export default function SettingsPage() {
               eventId={selectedEvent?.id}
               eventName={selectedEvent?.name}
               onReadinessChange={setPdfReady}
+              onExcelReadinessChange={setExcelReady}
             />
           )}
           {/* ── Publish Target ─────────────────────────────────────── */}
@@ -1214,8 +1225,8 @@ export default function SettingsPage() {
                   Publish Target
                 </h3>
                 <p className="text-sm text-foreground-muted">
-                  Select any combination of destinations. Leave all three
-                  unselected to keep publishing unconfigured.
+                  Select any combination of destinations. Leave every
+                  destination unselected to keep publishing unconfigured.
                 </p>
               </div>
 
