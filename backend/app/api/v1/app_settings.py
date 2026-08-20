@@ -209,8 +209,8 @@ async def delete_google_oauth(db: Session = Depends(get_db)):
 # ──────────────────────────────────────────────────────────────
 
 _KEY_PUBLISH_TARGET = "publish_target"
-PublishDestination = Literal["google", "mp-backend", "pdf"]
-_PUBLISH_DESTINATION_ORDER = ("google", "mp-backend", "pdf")
+PublishDestination = Literal["google", "mp-backend", "pdf", "excel"]
+_PUBLISH_DESTINATION_ORDER = ("google", "mp-backend", "pdf", "excel")
 
 
 def _normalise_publish_targets(value: object) -> list[PublishDestination]:
@@ -240,7 +240,7 @@ def _normalise_publish_targets(value: object) -> list[PublishDestination]:
 class PublishTargetPayload(BaseModel):
     """Requested publish target for schedule export actions."""
 
-    targets: list[PublishDestination] = Field(default_factory=list, max_length=3)
+    targets: list[PublishDestination] = Field(default_factory=list, max_length=4)
 
 
 class PublishTargetResponse(BaseModel):
@@ -264,7 +264,7 @@ async def set_publish_target(payload: PublishTargetPayload, db: Session = Depend
     if len(targets) != len(set(payload.targets)) or len(targets) != len(payload.targets):
         raise HTTPException(
             status_code=400,
-            detail="targets must contain unique values from 'google', 'mp-backend', and 'pdf'",
+            detail="targets must contain unique values from 'google', 'mp-backend', 'pdf', and 'excel'",
         )
     stored = json.dumps(targets, separators=(",", ":"))
     row = db.query(AppSettings).filter(AppSettings.key == _KEY_PUBLISH_TARGET).first()

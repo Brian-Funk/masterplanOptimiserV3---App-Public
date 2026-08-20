@@ -67,10 +67,18 @@ async def test_publish_targets_default_empty_and_round_trip_combinations(db_sess
         ["google"],
         ["mp-backend"],
         ["pdf"],
+        ["excel"],
         ["google", "mp-backend"],
         ["google", "pdf"],
         ["mp-backend", "pdf"],
+        ["google", "excel"],
+        ["mp-backend", "excel"],
+        ["pdf", "excel"],
         ["google", "mp-backend", "pdf"],
+        ["google", "mp-backend", "excel"],
+        ["google", "pdf", "excel"],
+        ["mp-backend", "pdf", "excel"],
+        ["google", "mp-backend", "pdf", "excel"],
     ):
         saved = await set_publish_target(
             PublishTargetPayload(targets=targets),
@@ -153,19 +161,19 @@ async def test_publish_state_round_trips_destination_array_and_reads_legacy_scal
     saved = await save_event_publish_state(
         event.id,
         EventPublishStateSavePayload(
-            last_publish_targets=["google", "mp-backend", "pdf"],
+            last_publish_targets=["google", "mp-backend", "pdf", "excel"],
             last_publish_result_summary="All destinations succeeded.",
         ),
         db=db_session,
     )
-    assert saved.last_publish_targets == ["google", "mp-backend", "pdf"]
+    assert saved.last_publish_targets == ["google", "mp-backend", "pdf", "excel"]
 
     row = (
         db_session.query(EventPublishState)
         .filter(EventPublishState.event_id == event.id)
         .one()
     )
-    assert row.last_publish_target == '["google","mp-backend","pdf"]'
+    assert row.last_publish_target == '["google","mp-backend","pdf","excel"]'
     row.last_publish_target = "both"
     db_session.commit()
 
@@ -201,6 +209,14 @@ async def test_publish_state_accepts_retired_scalar_request_without_weakening_pd
     )
     assert pdf.last_publish_targets == ["google", "pdf"]
     assert pdf.last_publish_target is None
+
+    excel = await save_event_publish_state(
+        event.id,
+        EventPublishStateSavePayload(last_publish_targets=["google", "excel"]),
+        db=db_session,
+    )
+    assert excel.last_publish_targets == ["google", "excel"]
+    assert excel.last_publish_target is None
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,11 @@
-export type PublishDestination = "google" | "mp-backend" | "pdf";
+export type PublishDestination = "google" | "mp-backend" | "pdf" | "excel";
 export type PublishTarget = PublishDestination[];
 
 export const PUBLISH_DESTINATIONS: readonly PublishDestination[] = [
   "google",
   "mp-backend",
   "pdf",
+  "excel",
 ] as const;
 
 /** Canonicalise persisted targets and translate the retired scalar contract. */
@@ -37,7 +38,8 @@ export function getPublishTargetsLabel(
   const labels = normalisePublishTargets(targets).map((target) => {
     if (target === "google") return "Google Calendar";
     if (target === "mp-backend") return "MP-Backend";
-    return "PDF";
+    if (target === "pdf") return "PDF";
+    return "Excel workbook";
   });
   if (labels.length === 0) return "No publish target";
   if (labels.length === 1) return labels[0];

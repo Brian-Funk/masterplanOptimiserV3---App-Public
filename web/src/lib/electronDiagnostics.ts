@@ -49,6 +49,84 @@ export interface PdfExportResult {
   fileName: string;
 }
 
+export interface ExcelExportPerson {
+  id: number;
+  displayName: string;
+}
+
+export interface ExcelExportLocation {
+  name: string;
+  address?: string;
+}
+
+export interface ExcelExportTask {
+  id: number;
+  title: string;
+  startMinutes: number | null;
+  endMinutes: number | null;
+  colour: string;
+  assignedSummary: string;
+  additionalInfo: string;
+  assignedPersonIds: number[];
+  venue?: ExcelExportLocation | null;
+  routeStart?: ExcelExportLocation | null;
+  routeEnd?: ExcelExportLocation | null;
+}
+
+export interface ExcelExportScheduleDay {
+  date: string;
+  alias: string;
+  dayNumber: number;
+  tasks: ExcelExportTask[];
+}
+
+export interface ExcelExportPayload {
+  title: string;
+  eventId: number;
+  eventName: string;
+  eventStartDate: string;
+  eventEndDate: string;
+  people: ExcelExportPerson[];
+  days: ExcelExportScheduleDay[];
+}
+
+export interface ExcelExportResult {
+  success: boolean;
+  path: string;
+  fileName: string;
+}
+
+export type ExcelExportJobState = PdfExportJobState;
+export type ExcelExportProgressStage =
+  | "queued"
+  | "preparing"
+  | "building"
+  | "serialising"
+  | "saving"
+  | "complete"
+  | "failed"
+  | "cancelled";
+
+export interface ExcelExportJobStart {
+  jobId: string;
+  reused: boolean;
+}
+
+export interface ExcelExportJobStatus {
+  jobId: string;
+  state: ExcelExportJobState;
+  stage: ExcelExportProgressStage;
+  message: string;
+  completed: number;
+  total: number;
+  dayCount: number;
+  taskCount: number;
+  startedAt: string;
+  updatedAt: string;
+  result?: ExcelExportResult;
+  error?: { code: string; message: string };
+}
+
 export type PdfExportJobState =
   | "queued"
   | "running"
@@ -115,6 +193,9 @@ export interface ElectronDiagnosticBridge {
   startSchedulePdfExport?: (payload: PdfExportPayload) => Promise<PdfExportJobStart>;
   getSchedulePdfExportStatus?: (jobId: string) => Promise<PdfExportJobStatus>;
   cancelSchedulePdfExport?: (jobId: string) => Promise<PdfExportJobStatus>;
+  startScheduleExcelExport?: (payload: ExcelExportPayload) => Promise<ExcelExportJobStart>;
+  getScheduleExcelExportStatus?: (jobId: string) => Promise<ExcelExportJobStatus>;
+  cancelScheduleExcelExport?: (jobId: string) => Promise<ExcelExportJobStatus>;
 }
 
 declare global {

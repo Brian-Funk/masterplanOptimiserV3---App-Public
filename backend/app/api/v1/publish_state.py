@@ -17,9 +17,9 @@ from app.models.event_publish_state import EventPublishState
 router = APIRouter()
 
 PublishScope = Literal["all", "partial", "none"]
-PublishDestination = Literal["google", "mp-backend", "pdf"]
+PublishDestination = Literal["google", "mp-backend", "pdf", "excel"]
 LegacyPublishTarget = Literal["google", "mp-backend", "both", "none"]
-_PUBLISH_DESTINATION_ORDER = ("google", "mp-backend", "pdf")
+_PUBLISH_DESTINATION_ORDER = ("google", "mp-backend", "pdf", "excel")
 
 
 class PublishedDayRecord(BaseModel):
@@ -53,7 +53,7 @@ class EventPublishStateSavePayload(BaseModel):
     published_at: str | None = None
     publish_failed_at: str | None = None
     day_records: dict[str, PublishedDayRecord] = Field(default_factory=dict)
-    last_publish_targets: list[PublishDestination] = Field(default_factory=list, max_length=3)
+    last_publish_targets: list[PublishDestination] = Field(default_factory=list, max_length=4)
     last_publish_target: LegacyPublishTarget | None = None
     last_publish_result_summary: str | None = None
 
@@ -64,7 +64,7 @@ class EventPublishFailurePayload(BaseModel):
     day_ids: list[str] = Field(default_factory=list)
     failed_at: str
     failure_message: str = "Publish failed."
-    last_publish_targets: list[PublishDestination] = Field(default_factory=list, max_length=3)
+    last_publish_targets: list[PublishDestination] = Field(default_factory=list, max_length=4)
     last_publish_target: LegacyPublishTarget | None = None
     last_publish_result_summary: str | None = None
 

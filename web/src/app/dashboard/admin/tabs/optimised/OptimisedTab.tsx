@@ -20,6 +20,7 @@ import {
   TaskType,
   taskTemplatesApi,
   TaskTemplate,
+  masterplanLayoutApi,
 } from "@/lib/api";
 import Calendar, { CalendarTask } from "@/components/Calendar";
 import { OptimisedTaskEditModal } from "./OptimisedTaskEditModal";
@@ -75,6 +76,11 @@ import {
   cancelActiveSchedulePdfExport,
   exportSchedulePdf,
 } from "@/lib/pdfExport";
+import {
+  cancelActiveScheduleExcelExport,
+  exportScheduleExcel,
+} from "@/lib/excelExport";
+import { buildScheduleExcelPayload } from "@/lib/scheduleExcelPayload";
 import {
   getScheduleDayBoundaryFromRange,
   getWorkingDayForDateTime,
@@ -1076,7 +1082,7 @@ export function OptimisedTab({
   };
 
   const [isPublishing, setIsPublishing] = useState(false);
-  const [pdfExportProgress, setPdfExportProgress] = useState("");
+  const [localExportProgress, setLocalExportProgress] = useState("");
   const [showPublishDropdown, setShowPublishDropdown] = useState(false);
   const [publishTarget, setPublishTarget] = useState<PublishTarget>([]);
   const [publishPreview, setPublishPreview] = useState<PublishPreview | null>(
@@ -1360,19 +1366,25 @@ export function OptimisedTab({
     }
 
     let pdfFileName = "";
+    let excelFileName = "";
     let googlePublished = false;
     let mpBackendPublished = false;
     setIsPublishing(true);
     try {
       const target = publishTarget;
 
-      // Render the local PDF first. A missing folder or renderer failure must not
-      // allow Calendar or MP-Backend side effects to begin.
-      if (hasPublishDestination(target, "pdf")) {
-        setPdfExportProgress("Preparing PDF export");
-        const pdfSettings = await eventsApi.getPdfExportSettings(selectedEvent.id);
+      // Complete workstation-local documents first. A missing folder or export
+      // failure must not allow Calendar or MP-Backend side effects to begin.
+      const hasLocalExport =
+        hasPublishDestination(target, "pdf") ||
+        hasPublishDestination(target, "excel");
+      const documentSettings = hasLocalExport
+        ? await eventsApi.getPdfExportSettings(selectedEvent.id)
+        : null;
+      if (hasPublishDestination(target, "pdf") && documentSettings) {
+        setLocalExportProgress("Preparing PDF export");
         const pdfResult = await exportSchedulePdf({
-          title: pdfSettings.title,
+          title: documentSettings.title,
           eventId: selectedEvent.id,
           eventName: selectedEvent.name,
           eventLocation: selectedEvent.location || "",
@@ -1389,9 +1401,38 @@ export function OptimisedTab({
               isTaskInWorkingDay(task, day.dayId, scheduleDayBoundary),
             ),
           })),
-        }, (status) => setPdfExportProgress(status.message));
+        }, (status) => setLocalExportProgress(status.message));
         pdfFileName = pdfResult.fileName;
-        setPdfExportProgress("");
+        setLocalExportProgress("");
+      }
+
+      if (hasPublishDestination(target, "excel") && documentSettings) {
+        setLocalExportProgress("Preparing Excel workbook");
+        const layoutColours = Object.fromEntries(
+          (await masterplanLayoutApi.getAll(selectedEvent.id)).map((layout) => [
+            layout.task_id,
+            layout.custom_color,
+          ]),
+        );
+        const excelResult = await exportScheduleExcel(
+          buildScheduleExcelPayload({
+            title: documentSettings.title,
+            event: selectedEvent,
+            people: persons,
+            locations,
+            sourceTasks: eventInstances,
+            layoutColours,
+            days: targetDays.map((day) => ({
+              date: day.dayId,
+              tasks: tasks.filter((task) =>
+                isTaskInWorkingDay(task, day.dayId, scheduleDayBoundary),
+              ),
+            })),
+          }),
+          (status) => setLocalExportProgress(status.message),
+        );
+        excelFileName = excelResult.fileName;
+        setLocalExportProgress("");
       }
 
       // First finalize so backend tasks table is up to date
@@ -1492,6 +1533,7 @@ export function OptimisedTab({
       if (errors.length > 0) {
         const completed = [
           pdfFileName ? `PDF ${pdfFileName}` : "",
+          excelFileName ? `Excel ${excelFileName}` : "",
           googlePublished ? "Google Calendar" : "",
           mpBackendPublished ? "MP-Backend" : "",
         ].filter(Boolean);
@@ -1571,6 +1613,7 @@ export function OptimisedTab({
           parts.push("MP-Backend server");
         }
         if (pdfFileName) parts.push(`PDF ${pdfFileName}`);
+        if (excelFileName) parts.push(`Excel ${excelFileName}`);
         addToast(
           `${publishSummary}${parts.length > 0 ? " " + parts.join(", ") : ""}`,
           "success",
@@ -1581,12 +1624,16 @@ export function OptimisedTab({
       console.error("Failed to publish:", error);
       const completed = [
         pdfFileName ? `PDF ${pdfFileName}` : "",
+        excelFileName ? `Excel ${excelFileName}` : "",
         googlePublished ? "Google Calendar" : "",
         mpBackendPublished ? "MP-Backend" : "",
       ].filter(Boolean);
       const failure = error instanceof Error ? error.message : "Unknown error";
-      if (failure === "The PDF export was cancelled.") {
-        addToast("PDF export cancelled.", "info");
+      if (
+        failure === "The PDF export was cancelled." ||
+        failure === "The Excel export was cancelled."
+      ) {
+        addToast("Local document export cancelled.", "info");
         return;
       }
       const failureSummary = completed.length
@@ -1598,7 +1645,7 @@ export function OptimisedTab({
       );
       addToast(failureSummary, "error");
     } finally {
-      setPdfExportProgress("");
+      setLocalExportProgress("");
       setIsPublishing(false);
     }
   };
@@ -2247,16 +2294,17 @@ export function OptimisedTab({
         open={!!publishPreview}
         preview={publishPreview}
         publishing={isPublishing}
-        publishingStatus={pdfExportProgress}
+        publishingStatus={localExportProgress}
         policyRequired={hasPublishDestination(publishTarget, "mp-backend")}
         dataPolicy={publishDataPolicy}
         policyLoading={publishPolicyLoading}
         policyError={publishPolicyError}
         acknowledgingPolicy={acknowledgingPublishPolicy}
         onCancel={() => {
-          if (isPublishing && pdfExportProgress) {
-            setPdfExportProgress("Cancelling PDF export");
+          if (isPublishing && localExportProgress) {
+            setLocalExportProgress("Cancelling local document export");
             void cancelActiveSchedulePdfExport();
+            void cancelActiveScheduleExcelExport();
             return;
           }
           if (!isPublishing) {

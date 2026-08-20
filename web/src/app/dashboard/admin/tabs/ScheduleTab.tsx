@@ -51,6 +51,11 @@ import {
   cancelActiveSchedulePdfExport,
   exportSchedulePdf,
 } from "@/lib/pdfExport";
+import {
+  cancelActiveScheduleExcelExport,
+  exportScheduleExcel,
+} from "@/lib/excelExport";
+import { buildScheduleExcelPayload } from "@/lib/scheduleExcelPayload";
 
 export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
   const { addToast } = useToast();
@@ -76,7 +81,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
     personName: string;
   } | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
-  const [pdfExportProgress, setPdfExportProgress] = useState("");
+  const [localExportProgress, setLocalExportProgress] = useState("");
   const [publishTarget, setPublishTarget] = useState<PublishTarget>([]);
   const [eventStatus, setEventStatus] = useState<string>(
     selectedEvent?.status || "draft",
@@ -504,6 +509,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
       return;
 
     let pdfFileName = "";
+    let excelFileName = "";
     let googlePublished = false;
     let mpBackendPublished = false;
     setIsPublishing(true);
@@ -513,10 +519,14 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
       const errors: string[] = [];
       let gcEventsCreated = 0;
 
-      if (hasPublishDestination(target, "pdf")) {
-        setPdfExportProgress("Preparing PDF export");
-        const settings = await eventsApi.getPdfExportSettings(selectedEvent.id);
-        const eventDates: string[] = [];
+      const hasLocalExport =
+        hasPublishDestination(target, "pdf") ||
+        hasPublishDestination(target, "excel");
+      const settings = hasLocalExport
+        ? await eventsApi.getPdfExportSettings(selectedEvent.id)
+        : null;
+      const eventDates: string[] = [];
+      if (hasLocalExport) {
         const cursor = new Date(`${selectedEvent.start_date}T00:00:00`);
         const end = new Date(`${selectedEvent.end_date}T00:00:00`);
         while (cursor <= end) {
@@ -526,6 +536,10 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
           }
           cursor.setDate(cursor.getDate() + 1);
         }
+      }
+
+      if (hasPublishDestination(target, "pdf") && settings) {
+        setLocalExportProgress("Preparing PDF export");
         const result = await exportSchedulePdf({
           title: settings.title,
           eventId: selectedEvent.id,
@@ -542,9 +556,34 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
               isTaskInWorkingDay(task, date, scheduleDayBoundary),
             ),
           })),
-        }, (status) => setPdfExportProgress(status.message));
+        }, (status) => setLocalExportProgress(status.message));
         pdfFileName = result.fileName;
-        setPdfExportProgress("");
+        setLocalExportProgress("");
+      }
+
+      if (hasPublishDestination(target, "excel") && settings) {
+        setLocalExportProgress("Preparing Excel workbook");
+        const result = await exportScheduleExcel(
+          buildScheduleExcelPayload({
+            title: settings.title,
+            event: selectedEvent,
+            people: persons,
+            locations,
+            sourceTasks: backendTasks,
+            layoutColours: Object.fromEntries(
+              layouts.map((layout) => [layout.task_id, layout.custom_color]),
+            ),
+            days: eventDates.map((date) => ({
+              date,
+              tasks: tasks.filter((task) =>
+                isTaskInWorkingDay(task, date, scheduleDayBoundary),
+              ),
+            })),
+          }),
+          (status) => setLocalExportProgress(status.message),
+        );
+        excelFileName = result.fileName;
+        setLocalExportProgress("");
       }
 
       // Publish to Google Calendar (if target includes it)
@@ -587,6 +626,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
       if (errors.length > 0) {
         const completed = [
           pdfFileName ? `PDF ${pdfFileName}` : "",
+          excelFileName ? `Excel ${excelFileName}` : "",
           googlePublished ? "Google Calendar" : "",
           mpBackendPublished ? "MP-Backend" : "",
         ].filter(Boolean);
@@ -603,19 +643,29 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
           gcEventsCreated > 0
             ? ` (${gcEventsCreated} Google Calendar event(s) created)`
             : "";
-        const pdfDetail = pdfFileName ? ` PDF ${pdfFileName} created.` : "";
-        addToast(`Published to ${publishTargetLabel}!${detail}${pdfDetail}`, "success");
+        const localDetails = [
+          pdfFileName ? `PDF ${pdfFileName}` : "",
+          excelFileName ? `Excel ${excelFileName}` : "",
+        ].filter(Boolean);
+        const localDetail = localDetails.length
+          ? ` ${localDetails.join(" and ")} created.`
+          : "";
+        addToast(`Published to ${publishTargetLabel}!${detail}${localDetail}`, "success");
       }
     } catch (error) {
       console.error("Failed to publish:", error);
       const completed = [
         pdfFileName ? `PDF ${pdfFileName}` : "",
+        excelFileName ? `Excel ${excelFileName}` : "",
         googlePublished ? "Google Calendar" : "",
         mpBackendPublished ? "MP-Backend" : "",
       ].filter(Boolean);
       const failure = error instanceof Error ? error.message : "Unknown error";
-      if (failure === "The PDF export was cancelled.") {
-        addToast("PDF export cancelled.", "info");
+      if (
+        failure === "The PDF export was cancelled." ||
+        failure === "The Excel export was cancelled."
+      ) {
+        addToast("Local document export cancelled.", "info");
         return;
       }
       addToast(
@@ -625,7 +675,7 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
         "error",
       );
     } finally {
-      setPdfExportProgress("");
+      setLocalExportProgress("");
       setIsPublishing(false);
     }
   };
@@ -693,9 +743,9 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
         </div>
 
         <div className="flex items-center gap-2">
-          {pdfExportProgress && (
+          {localExportProgress && (
             <span className="text-xs text-foreground-muted" role="status">
-              {pdfExportProgress}
+              {localExportProgress}
             </span>
           )}
           {/* Publish button - available when optimised, finalised, or already published (re-publish) */}
@@ -705,14 +755,15 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
             <Tooltip content={`Publish to ${publishTargetLabel}`} side="bottom">
               <button
                 onClick={() => {
-                  if (isPublishing && pdfExportProgress) {
-                    setPdfExportProgress("Cancelling PDF export");
+                  if (isPublishing && localExportProgress) {
+                    setLocalExportProgress("Cancelling local document export");
                     void cancelActiveSchedulePdfExport();
+                    void cancelActiveScheduleExcelExport();
                     return;
                   }
                   void handlePublish();
                 }}
-                disabled={(isPublishing && !pdfExportProgress) || !hasAnyTasks}
+                disabled={(isPublishing && !localExportProgress) || !hasAnyTasks}
                 className={`rounded px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 flex items-center gap-1 ${confidenceClasses(
                   publishConfidence.level,
                   "button",
@@ -720,8 +771,8 @@ export function ScheduleTab({ selectedEvent }: { selectedEvent: any }) {
               >
                 <Send className="w-3.5 h-3.5" />
                 {isPublishing
-                  ? pdfExportProgress
-                    ? "Cancel PDF"
+                  ? localExportProgress
+                    ? "Cancel export"
                     : "Publishing..."
                   : "Publish"}
               </button>
