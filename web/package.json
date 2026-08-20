@@ -4,7 +4,7 @@
   "private": true,
   "license": "AGPL-3.0-only",
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/clean-dev-cache.js && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
