@@ -392,11 +392,11 @@ def optimize_with_fatigue(
     # fills. Model every published transfer field explicitly so one
     # multi-capability person cannot satisfy two fields at once.
     transfer_role = {}
+    legacy_transfer_role = {}
     for k, transfer in enumerate(transfers):
         locked_person_ids = set(getattr(transfer, "locked_person_ids", []))
-        for field_id, field_caps in getattr(
-            transfer, "field_requirements", {}
-        ).items():
+        field_requirements = getattr(transfer, "field_requirements", {})
+        for field_id, field_caps in field_requirements.items():
             for cap_name, count in field_caps.items():
                 if count <= 0:
                     continue
@@ -409,6 +409,42 @@ def optimize_with_fatigue(
                     transfer_role[p, k, field_id, cap_name] = model.NewBoolVar(
                         f'transfer_role_p{p}_k{k}_{field_id}_{cap_name}'
                     )
+        if not field_requirements:
+            for cap_name, count in transfer.requirements.items():
+                if count <= 0:
+                    continue
+                for p, person in enumerate(persons):
+                    if cap_name not in person.capabilities:
+                        continue
+                    legacy_transfer_role[p, k, cap_name] = model.NewBoolVar(
+                        f'legacy_transfer_role_p{p}_k{k}_{cap_name}'
+                    )
+
+    # Boarding controls movement, capacity, and busy time. Only direct transfer
+    # staff and solved capability roles consume the daily working-time limit;
+    # the remaining riders are transferees.
+    transfer_working = {}
+    for p, person in enumerate(persons):
+        for k, transfer in enumerate(transfers):
+            staff_var = model.NewBoolVar(f'transfer_working_p{p}_k{k}')
+            transfer_working[p, k] = staff_var
+            if person.id in set(getattr(transfer, "locked_person_ids", [])):
+                model.Add(staff_var == 1)
+                continue
+            role_vars = [
+                var
+                for (role_p, role_k, _field_id, _cap_name), var in transfer_role.items()
+                if role_p == p and role_k == k
+            ]
+            role_vars.extend(
+                var
+                for (role_p, role_k, _cap_name), var in legacy_transfer_role.items()
+                if role_p == p and role_k == k
+            )
+            if role_vars:
+                model.AddMaxEquality(staff_var, role_vars)
+            else:
+                model.Add(staff_var == 0)
     
     task_fully_covered = []  # task_fully_covered[t]: task t has all requirements satisfied
     for t in range(num_tasks):
@@ -488,7 +524,10 @@ def optimize_with_fatigue(
         model.Add(
             work_time[p] ==
             sum(work_task_durations[t] * working[p, t] for t in range(num_tasks)) +
-            sum(work_transfer_durations[k] * y[p, k] for k in range(num_transfers))
+            sum(
+                work_transfer_durations[k] * transfer_working[p, k]
+                for k in range(num_transfers)
+            )
         )
     
     # Enforce maximum work time per person
@@ -653,15 +692,19 @@ def optimize_with_fatigue(
                     model.Add(sum(person_roles) <= 1)
         else:
             # Compatibility for historical normalised inputs without
-            # per-field allocation requirements.
+            # per-field allocation requirements. Explicit anonymous roles keep
+            # unrelated passengers from being counted as transfer staff.
             for cap_name, count in transfer.requirements.items():
                 if cap_name in capability_to_idx and count > 0:
-                    people_with_cap = [
-                        p for p in range(num_persons)
-                        if cap_name in persons[p].capabilities
+                    role_vars = [
+                        var
+                        for (p, transfer_idx, role_cap), var in legacy_transfer_role.items()
+                        if transfer_idx == k and role_cap == cap_name
                     ]
-                    if people_with_cap:
-                        model.Add(sum(y[p, k] for p in people_with_cap) >= count)
+                    model.Add(sum(role_vars) == count)
+                    for (p, transfer_idx, role_cap), role_var in legacy_transfer_role.items():
+                        if transfer_idx == k and role_cap == cap_name:
+                            model.Add(role_var <= y[p, k])
     print("[OK] Transfer capacity")
     
     # === TASK FEASIBILITY ===
