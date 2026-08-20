@@ -42,6 +42,7 @@ function payload() {
             colour: '#D9EAD3',
             assignedSummary: 'Lead: Ada Lovelace',
             additionalInfo: 'Notes: Bring printed copies',
+            additionalInfoFields: [{ label: 'Notes', value: 'Bring printed copies' }],
             assignedPersonIds: [1],
             venue: { name: 'Main Hall', address: 'ETH Zurich, Switzerland' },
           },
@@ -94,6 +95,11 @@ test('workbook matches the reference day-table contract', async () => {
   assert.equal(sheet.getCell('H4').value, 'x');
   assert.equal(sheet.getCell('I3').value, null);
   assert.equal(sheet.getCell('I4').value, null);
+  assert.equal(sheet.getCell('F3').value.richText[0].text, 'Notes: ');
+  assert.equal(sheet.getCell('F3').value.richText[0].font.bold, true);
+  assert.equal(sheet.getCell('F3').value.richText[1].text, 'Bring printed copies');
+  assert.equal(sheet.getCell('F3').value.richText[1].font.bold, undefined);
+  assert.equal(sheet.getCell('F4').value, null);
   assert.equal(sheet.getCell('C3').fill.fgColor.argb, 'FFD9EAD3');
   assert.equal(sheet.getCell('C4').fill.fgColor.argb, 'FF2563EB');
   assert.equal(sheet.getCell('D3').value.text, 'Main Hall');

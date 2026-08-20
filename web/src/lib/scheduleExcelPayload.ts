@@ -125,8 +125,11 @@ function titleCase(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function buildAdditionalInfo(task: CalendarTask, source?: ExcelSourceTask): string {
-  const lines: string[] = [];
+function buildAdditionalInfo(task: CalendarTask, source?: ExcelSourceTask): {
+  text: string;
+  fields: Array<{ label: string; value: string }>;
+} {
+  const fields: Array<{ label: string; value: string }> = [];
   const seen = new Set<string>();
   const add = (label: string, value: unknown) => {
     if (!hasValue(value)) return;
@@ -135,7 +138,7 @@ function buildAdditionalInfo(task: CalendarTask, source?: ExcelSourceTask): stri
     const line = label ? `${label}: ${rendered}` : rendered;
     if (!seen.has(line)) {
       seen.add(line);
-      lines.push(line);
+      fields.push({ label, value: rendered });
     }
   };
 
@@ -153,7 +156,10 @@ function buildAdditionalInfo(task: CalendarTask, source?: ExcelSourceTask): stri
       task.fields?.[definition.id] ?? source?.additional?.[definition.id],
     );
   }
-  return lines.join("\n");
+  return {
+    text: fields.map((field) => `${field.label}: ${field.value}`).join("\n"),
+    fields,
+  };
 }
 
 function locationValue(location?: Location): ExcelExportLocation | null {
@@ -239,6 +245,7 @@ export function buildScheduleExcelPayload(input: BuildScheduleExcelPayloadInput)
       tasks: [...day.tasks]
         .map((task): ExcelExportTask => {
           const times = workingDayTimes(task, day.date);
+          const additionalInfo = buildAdditionalInfo(task, sourceById.get(task.id));
           return {
             id: task.id,
             title: task.name,
@@ -246,7 +253,8 @@ export function buildScheduleExcelPayload(input: BuildScheduleExcelPayloadInput)
             endMinutes: times.endMinutes,
             colour: input.layoutColours?.[task.id] || task.task_type_color || "#3b82f6",
             assignedSummary: task.resource_info || "",
-            additionalInfo: buildAdditionalInfo(task, sourceById.get(task.id)),
+            additionalInfo: additionalInfo.text,
+            additionalInfoFields: additionalInfo.fields,
             assignedPersonIds: collectAssignedPersonIds(task),
             ...buildVenue(task, input.locations),
           };
