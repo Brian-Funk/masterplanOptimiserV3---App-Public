@@ -9,7 +9,7 @@
 // Load .env from the desktop directory (must be before anything reads process.env)
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
-const { app, BrowserWindow, nativeImage, ipcMain, dialog, session, shell } = require('electron');
+const { app, BrowserWindow, nativeImage, ipcMain, dialog, protocol, session, shell } = require('electron');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -33,20 +33,19 @@ const {
   prepareDesktopUserData,
 } = require('./user-data-paths');
 const {
-  PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
-  PDF_PRINT_TIMEOUT_MS,
-  buildPdfPrintOptions,
   clearPdfExportSettings,
-  createPdfProgressWatchdog,
-  describePdfProgress,
   describePdfExportDirectory,
-  pdfProgressIdleTimeout,
-  validatePdfExportPayload,
-  validatePdfProgress,
-  withPdfTimeout,
-  writePdfBufferAtomically,
   writePdfExportSettings,
 } = require('./pdf-export');
+const {
+  createPdfExportManager,
+  registerPdfExportIpc,
+  registerPdfProtocolScheme,
+} = require('./pdf-export-service');
+
+// Custom schemes must be registered before Electron becomes ready. The scheme
+// is used only in isolated, in-memory PDF sessions created by the main process.
+registerPdfProtocolScheme(protocol);
 
 const appVersion = require('./package.json').version;
 const smokeTestMode = process.env.MP_DESKTOP_SMOKE_TEST === '1';
@@ -65,7 +64,6 @@ let startupStepOverrides = {};
 let desktopDataPaths;
 const fullscreenEventWindows = new WeakSet();
 const ownedProcesses = createOwnedProcessRegistry();
-const pdfExportJobs = new Map();
 
 const diagnosticLogs = { main: [], backend: [], frontend: [], renderer: [] };
 const MAX_LOG_LINES = 1000;
@@ -165,6 +163,27 @@ function getDesktopDataPaths() {
   }
   return desktopDataPaths;
 }
+
+const pdfExportManager = createPdfExportManager({
+  BrowserWindow,
+  electronSession: session,
+  getUserDataDirectory: () => getDesktopDataPaths().userDataDir,
+  appDirectory: __dirname,
+  resourcesDirectory: process.resourcesPath,
+  packaged: app.isPackaged,
+  logger: (entry) => {
+    const safe = [
+      `stage=${entry.stage}`,
+      entry.state ? `state=${entry.state}` : '',
+      Number.isSafeInteger(entry.completed) ? `completed=${entry.completed}` : '',
+      Number.isSafeInteger(entry.total) ? `total=${entry.total}` : '',
+      Number.isSafeInteger(entry.retry) ? `retry=${entry.retry}` : '',
+      Number.isSafeInteger(entry.dayCount) ? `days=${entry.dayCount}` : '',
+      Number.isSafeInteger(entry.taskCount) ? `tasks=${entry.taskCount}` : '',
+    ].filter(Boolean).join(' ');
+    appendDiagnosticLog('main', 'log', `PDF export ${safe}.`);
+  },
+});
 
 function buildBackendEnv() {
   return buildDesktopBackendEnv(
@@ -355,201 +374,6 @@ function recordRendererDiagnostic(payload = {}) {
     : '';
 
   appendDiagnosticLog('renderer', 'error', `${source}: ${message}${stack}${extra}`);
-}
-
-function markPdfJobFailed(jobId, error) {
-  const job = pdfExportJobs.get(jobId);
-  if (!job || job.renderReady || job.renderError) return;
-  job.renderError = error instanceof Error ? error : new Error(String(error));
-  if (job.readyReject) {
-    job.readyReject(job.renderError);
-    job.readyReject = null;
-  }
-}
-
-function updatePdfJobProgress(jobId, stage, completed, total) {
-  const job = pdfExportJobs.get(jobId);
-  if (!job) throw new Error('PDF export job is unavailable.');
-  const progress = validatePdfProgress(stage, completed, total);
-  job.lastProgress = progress;
-  if (job.progressListener) job.progressListener();
-  appendDiagnosticLog(
-    'main',
-    'log',
-    `Hidden PDF renderer progress: ${describePdfProgress(progress)}.`,
-  );
-  return progress;
-}
-
-function describePdfWorkload(job) {
-  return `${job.dayCount} day${job.dayCount === 1 ? '' : 's'}, ${job.taskCount} task${job.taskCount === 1 ? '' : 's'}`;
-}
-
-function describePdfIdleDuration(milliseconds) {
-  const seconds = Math.round(milliseconds / 1000);
-  return seconds >= 120 ? `${Math.round(seconds / 60)} minutes` : `${seconds} seconds`;
-}
-
-function waitForPdfDocument(jobId) {
-  const job = pdfExportJobs.get(jobId);
-  if (!job) return Promise.reject(new Error('PDF export job is unavailable.'));
-  if (job.renderReady) return Promise.resolve();
-  if (job.renderError) return Promise.reject(job.renderError);
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let watchdog;
-    const finish = (callback, value) => {
-      if (settled) return;
-      settled = true;
-      watchdog.stop();
-      job.progressListener = null;
-      job.cancelWait = null;
-      job.readyResolve = null;
-      job.readyReject = null;
-      callback(value);
-    };
-    const stage = () => describePdfProgress(job.lastProgress);
-    const idleTimeout = () => pdfProgressIdleTimeout(job.lastProgress);
-    watchdog = createPdfProgressWatchdog({
-      onIdle: () => finish(
-        reject,
-        new Error(
-          `The PDF renderer made no validated progress for ${describePdfIdleDuration(idleTimeout())} during ${stage()} (${describePdfWorkload(job)}).`,
-        ),
-      ),
-      onAbsolute: () => finish(
-        reject,
-        new Error(`The PDF renderer exceeded five minutes during ${stage()} (${describePdfWorkload(job)}).`),
-      ),
-      idleTimeoutMs: idleTimeout(),
-    });
-    job.progressListener = () => watchdog.progress(idleTimeout());
-    job.readyResolve = () => finish(resolve);
-    job.readyReject = (error) => finish(reject, error);
-    job.cancelWait = () => {
-      finish(reject, new Error('The PDF renderer was closed before completion.'));
-    };
-  });
-}
-
-async function exportSchedulePdf(payload) {
-  const directory = describePdfExportDirectory(getDesktopDataPaths().userDataDir);
-  if (!directory.available || !directory.outputDirectory) {
-    throw new Error('Choose an available PDF output folder in Settings first.');
-  }
-  const validated = validatePdfExportPayload(payload);
-  const jobId = crypto.randomUUID();
-  const pdfWindow = new BrowserWindow({
-    width: 1400,
-    height: 990,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      backgroundThrottling: false,
-    },
-  });
-  const totalDays = validated.days.length;
-  const totalTasks = validated.days.reduce((sum, day) => sum + day.tasks.length, 0);
-  const job = {
-    payload: validated,
-    webContentsId: pdfWindow.webContents.id,
-    readyResolve: null,
-    readyReject: null,
-    renderReady: false,
-    renderError: null,
-    progressListener: null,
-    cancelWait: null,
-    lastProgress: validatePdfProgress('loading', 0, totalDays),
-    rendererConsoleErrors: 0,
-    dayCount: totalDays,
-    taskCount: totalTasks,
-  };
-  pdfExportJobs.set(jobId, job);
-  const printUrl = `${FRONTEND_URL}/pdf-export?job=${encodeURIComponent(jobId)}`;
-  pdfWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  pdfWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    if (navigationUrl !== printUrl) event.preventDefault();
-  });
-  pdfWindow.webContents.on(
-    'did-fail-load',
-    (_event, errorCode, errorDescription, _validatedUrl, isMainFrame) => {
-      if (isMainFrame !== false) {
-        markPdfJobFailed(
-          jobId,
-          new Error(`The PDF renderer could not load (${errorCode}: ${errorDescription}).`),
-        );
-      }
-    },
-  );
-  pdfWindow.webContents.on('render-process-gone', (_event, details) => {
-    markPdfJobFailed(
-      jobId,
-      new Error(`The PDF renderer stopped unexpectedly (${details.reason}).`),
-    );
-  });
-  pdfWindow.webContents.on('console-message', (_event, level) => {
-    if (Number(level) < 3) return;
-    job.rendererConsoleErrors += 1;
-    appendDiagnosticLog(
-      'main',
-      'warn',
-      `Hidden PDF renderer reported a console failure during ${describePdfProgress(job.lastProgress)}.`,
-    );
-  });
-  pdfWindow.on('unresponsive', () => {
-    appendDiagnosticLog(
-      'main',
-      'warn',
-      `The hidden PDF renderer is unresponsive during ${describePdfProgress(job.lastProgress)}.`,
-    );
-  });
-  pdfWindow.on('closed', () => {
-    if (!job.renderReady && !job.renderError) {
-      markPdfJobFailed(jobId, new Error('The PDF renderer closed unexpectedly.'));
-    }
-  });
-
-  try {
-    const readiness = waitForPdfDocument(jobId);
-    try {
-      await Promise.all([
-        withPdfTimeout(
-          pdfWindow.loadURL(printUrl),
-          PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
-          'The PDF renderer exceeded five minutes while loading.',
-        ),
-        readiness,
-      ]);
-    } catch (error) {
-      markPdfJobFailed(jobId, error);
-      throw error;
-    }
-    if (job.rendererConsoleErrors > 0) {
-      throw new Error(
-        `The PDF renderer reported an error during ${describePdfProgress(job.lastProgress)}.`,
-      );
-    }
-    updatePdfJobProgress(jobId, 'printing', 0, 1);
-    const pdf = await withPdfTimeout(
-      pdfWindow.webContents.printToPDF(buildPdfPrintOptions()),
-      PDF_PRINT_TIMEOUT_MS,
-      'Chromium did not finish printing the PDF within five minutes.',
-    );
-    updatePdfJobProgress(jobId, 'printing', 1, 1);
-    const outputPath = writePdfBufferAtomically(
-      directory.outputDirectory,
-      validated.title,
-      pdf,
-    );
-    return { success: true, path: outputPath, fileName: path.basename(outputPath) };
-  } finally {
-    if (job.cancelWait) job.cancelWait();
-    pdfExportJobs.delete(jobId);
-    if (!pdfWindow.isDestroyed()) pdfWindow.destroy();
-  }
 }
 
 function handleMainProcessFailure(label, error) {
@@ -1237,57 +1061,10 @@ ipcMain.handle('clear-pdf-export-directory', async (event) => {
   return { outputDirectory: null, available: false };
 });
 
-ipcMain.handle('get-pdf-export-job', async (event, jobId) => {
-  assertTrustedIpcSender(event);
-  const job = typeof jobId === 'string' ? pdfExportJobs.get(jobId) : null;
-  if (!job || job.webContentsId !== event.sender.id) {
-    throw new Error('PDF export job is unavailable for this window.');
-  }
-  return job.payload;
-});
-
-ipcMain.handle('notify-pdf-export-ready', async (event, jobId) => {
-  assertTrustedIpcSender(event);
-  const job = typeof jobId === 'string' ? pdfExportJobs.get(jobId) : null;
-  if (!job || job.webContentsId !== event.sender.id) {
-    throw new Error('PDF export readiness signal is invalid.');
-  }
-  job.renderReady = true;
-  if (job.readyResolve) {
-    job.readyResolve();
-    job.readyResolve = null;
-  }
-  return { success: true };
-});
-
-ipcMain.handle(
-  'notify-pdf-export-progress',
-  async (event, jobId, stage, completed, total) => {
-    assertTrustedIpcSender(event);
-    const job = typeof jobId === 'string' ? pdfExportJobs.get(jobId) : null;
-    if (!job || job.webContentsId !== event.sender.id) {
-      throw new Error('PDF export progress signal is invalid.');
-    }
-    return updatePdfJobProgress(jobId, stage, completed, total);
-  },
-);
-
-ipcMain.handle('notify-pdf-export-failed', async (event, jobId, code) => {
-  assertTrustedIpcSender(event);
-  const job = typeof jobId === 'string' ? pdfExportJobs.get(jobId) : null;
-  if (!job || job.webContentsId !== event.sender.id) {
-    throw new Error('PDF export failure signal is invalid.');
-  }
-  const safeCode = typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code)
-    ? code
-    : 'PDF_RENDER_FAILED';
-  markPdfJobFailed(jobId, new Error(`The PDF document could not be rendered (${safeCode}).`));
-  return { success: true };
-});
-
-ipcMain.handle('export-schedule-pdf', async (event, payload) => {
-  assertTrustedIpcSender(event);
-  return exportSchedulePdf(payload);
+registerPdfExportIpc({
+  ipcMain,
+  manager: pdfExportManager,
+  authorise: assertTrustedIpcSender,
 });
 
 function configureSessionSecurity() {
@@ -1480,6 +1257,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  pdfExportManager.shutdown();
   ownedProcesses.terminateAll();
 });
 

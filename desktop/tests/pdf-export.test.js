@@ -5,107 +5,16 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
-  buildPdfPrintOptions,
   clearPdfExportSettings,
-  createPdfProgressWatchdog,
   describePdfExportDirectory,
-  describePdfProgress,
   localTimestamp,
   nextPdfPath,
-  pdfProgressIdleTimeout,
   sanitisePdfTitle,
   validatePdfExportPayload,
-  validatePdfProgress,
   withPdfTimeout,
   writePdfBufferAtomically,
   writePdfExportSettings,
 } = require('../pdf-export');
-
-test('PDF printing uses A4 portrait with backgrounds and native page numbering', () => {
-  const options = buildPdfPrintOptions();
-  assert.equal(options.landscape, false);
-  assert.equal(options.pageSize, 'A4');
-  assert.equal(options.printBackground, true);
-  assert.equal(options.preferCSSPageSize, true);
-  assert.equal(options.displayHeaderFooter, true);
-  assert.match(options.footerTemplate, /pageNumber/);
-  assert.match(options.footerTemplate, /totalPages/);
-});
-
-test('PDF progress accepts only bounded safe stages and counts', () => {
-  assert.deepEqual(validatePdfProgress('layout', 3, 7), {
-    stage: 'layout',
-    completed: 3,
-    total: 7,
-  });
-  assert.equal(describePdfProgress({ stage: 'layout', completed: 3, total: 7 }), 'layout after 3/7');
-  assert.throws(() => validatePdfProgress('event name', 0, 1), /stage/);
-  assert.throws(() => validatePdfProgress('layout', 2, 1), /count/);
-  assert.throws(() => validatePdfProgress('layout', 0.5, 1), /count/);
-});
-
-test('PDF progress allows synchronous construction and layout to reach the absolute deadline', () => {
-  assert.equal(pdfProgressIdleTimeout({ stage: 'loading', completed: 0, total: 7 }), 60_000);
-  assert.equal(pdfProgressIdleTimeout({ stage: 'assets', completed: 0, total: 7 }), 60_000);
-  assert.equal(pdfProgressIdleTimeout({ stage: 'building', completed: 7, total: 7 }), 240_000);
-  assert.equal(pdfProgressIdleTimeout({ stage: 'layout', completed: 0, total: 7 }), 240_000);
-});
-
-test('PDF progress renews the idle watchdog without extending the absolute deadline', () => {
-  let nextId = 0;
-  const timers = new Map();
-  const setTimer = (callback, timeout) => {
-    nextId += 1;
-    timers.set(nextId, { callback, timeout });
-    return nextId;
-  };
-  const clearTimer = (timer) => timers.delete(timer);
-  let idleCount = 0;
-  let absoluteCount = 0;
-  const watchdog = createPdfProgressWatchdog({
-    onIdle: () => { idleCount += 1; },
-    onAbsolute: () => { absoluteCount += 1; },
-    idleTimeoutMs: 60,
-    absoluteTimeoutMs: 300,
-    setTimer,
-    clearTimer,
-  });
-
-  assert.deepEqual(Array.from(timers.values()).map((timer) => timer.timeout), [300, 60]);
-  watchdog.progress();
-  assert.deepEqual(Array.from(timers.values()).map((timer) => timer.timeout), [300, 60]);
-  const idleTimer = Array.from(timers.values()).find((timer) => timer.timeout === 60);
-  idleTimer.callback();
-  assert.equal(idleCount, 1);
-  assert.equal(absoluteCount, 0);
-  watchdog.stop();
-  assert.equal(timers.size, 0);
-});
-
-test('PDF watchdog adopts a stage-specific idle deadline without moving the absolute one', () => {
-  let nextId = 0;
-  const timers = new Map();
-  const setTimer = (callback, timeout) => {
-    nextId += 1;
-    timers.set(nextId, { callback, timeout });
-    return nextId;
-  };
-  const clearTimer = (timer) => timers.delete(timer);
-  const watchdog = createPdfProgressWatchdog({
-    onIdle: () => undefined,
-    onAbsolute: () => undefined,
-    idleTimeoutMs: 60,
-    absoluteTimeoutMs: 300,
-    setTimer,
-    clearTimer,
-  });
-
-  watchdog.progress(240);
-  assert.deepEqual(Array.from(timers.values()).map((timer) => timer.timeout), [300, 240]);
-  watchdog.progress(60);
-  assert.deepEqual(Array.from(timers.values()).map((timer) => timer.timeout), [300, 60]);
-  watchdog.stop();
-});
 
 test('PDF promise deadlines are stage-specific and retryable', async () => {
   await assert.rejects(

@@ -7,112 +7,7 @@ const MAX_DAYS = 62;
 const MAX_TASKS_PER_DAY = 2000;
 const MAX_TASK_BYTES_PER_DAY = 1024 * 1024;
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
-const PDF_NO_PROGRESS_TIMEOUT_MS = 60 * 1000;
-// Chromium can spend well over a minute in one synchronous style/layout pass
-// for a real seven-day schedule. During that pass the renderer cannot emit a
-// heartbeat even though it is still doing useful work. Keep the short watchdog
-// for I/O stages, but let CPU-bound construction/layout run until shortly
-// before the independent five-minute absolute deadline.
-const PDF_LAYOUT_NO_PROGRESS_TIMEOUT_MS = 4 * 60 * 1000;
-const PDF_ABSOLUTE_RENDER_TIMEOUT_MS = 5 * 60 * 1000;
-const PDF_PRINT_TIMEOUT_MS = 5 * 60 * 1000;
-const PDF_PROGRESS_STAGES = new Set([
-  'loading',
-  'building',
-  'assets',
-  'layout',
-  'ready',
-  'printing',
-]);
 const RESERVED_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
-const PDF_FOOTER_TEMPLATE = `
-  <div style="box-sizing:border-box;display:flex;width:100%;align-items:center;justify-content:space-between;padding:0 10mm;color:#6b7280;font-family:'Source Sans 3',Arial,sans-serif;font-size:7.5pt;">
-    <span>MP-OPT Optimised Schedule</span>
-    <span><span class="pageNumber"></span> / <span class="totalPages"></span></span>
-  </div>`;
-
-function buildPdfPrintOptions() {
-  return {
-    landscape: false,
-    pageSize: 'A4',
-    printBackground: true,
-    preferCSSPageSize: true,
-    displayHeaderFooter: true,
-    headerTemplate: '<span></span>',
-    footerTemplate: PDF_FOOTER_TEMPLATE,
-    margins: { top: 0, bottom: 0, left: 0, right: 0 },
-  };
-}
-
-function validatePdfProgress(stage, completed, total) {
-  if (!PDF_PROGRESS_STAGES.has(stage)) {
-    throw new Error('Invalid PDF export progress stage.');
-  }
-  if (
-    !Number.isSafeInteger(completed) ||
-    !Number.isSafeInteger(total) ||
-    completed < 0 ||
-    total < 0 ||
-    completed > total
-  ) {
-    throw new Error('Invalid PDF export progress count.');
-  }
-  return { stage, completed, total };
-}
-
-function describePdfProgress(progress) {
-  const validated = validatePdfProgress(
-    progress?.stage,
-    progress?.completed,
-    progress?.total,
-  );
-  const count = validated.total > 0
-    ? ` after ${validated.completed}/${validated.total}`
-    : '';
-  return `${validated.stage}${count}`;
-}
-
-function pdfProgressIdleTimeout(progress) {
-  const validated = validatePdfProgress(
-    progress?.stage,
-    progress?.completed,
-    progress?.total,
-  );
-  return validated.stage === 'building' || validated.stage === 'layout'
-    ? PDF_LAYOUT_NO_PROGRESS_TIMEOUT_MS
-    : PDF_NO_PROGRESS_TIMEOUT_MS;
-}
-
-function createPdfProgressWatchdog({
-  onIdle,
-  onAbsolute,
-  idleTimeoutMs = PDF_NO_PROGRESS_TIMEOUT_MS,
-  absoluteTimeoutMs = PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
-  setTimer = setTimeout,
-  clearTimer = clearTimeout,
-}) {
-  let idleTimer = null;
-  let absoluteTimer = setTimer(onAbsolute, absoluteTimeoutMs);
-
-  const resetIdle = (timeoutMs = idleTimeoutMs) => {
-    if (idleTimer !== null) clearTimer(idleTimer);
-    idleTimer = setTimer(onIdle, timeoutMs);
-  };
-  resetIdle();
-
-  return {
-    progress(nextIdleTimeoutMs = idleTimeoutMs) {
-      resetIdle(nextIdleTimeoutMs);
-    },
-    stop() {
-      if (idleTimer !== null) clearTimer(idleTimer);
-      if (absoluteTimer !== null) clearTimer(absoluteTimer);
-      idleTimer = null;
-      absoluteTimer = null;
-    },
-  };
-}
-
 function withPdfTimeout(promise, timeoutMs, message) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -312,22 +207,13 @@ function validatePdfExportPayload(payload) {
 }
 
 module.exports = {
-  PDF_ABSOLUTE_RENDER_TIMEOUT_MS,
-  PDF_LAYOUT_NO_PROGRESS_TIMEOUT_MS,
-  PDF_NO_PROGRESS_TIMEOUT_MS,
-  PDF_PRINT_TIMEOUT_MS,
-  buildPdfPrintOptions,
   clearPdfExportSettings,
-  createPdfProgressWatchdog,
-  describePdfProgress,
   describePdfExportDirectory,
   localTimestamp,
   nextPdfPath,
-  pdfProgressIdleTimeout,
   readPdfExportSettings,
   sanitisePdfTitle,
   validatePdfExportPayload,
-  validatePdfProgress,
   withPdfTimeout,
   writePdfBufferAtomically,
   writePdfExportSettings,
