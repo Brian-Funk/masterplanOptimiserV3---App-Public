@@ -10,7 +10,7 @@ import {
 import { FeasibilityIssuesPanel } from "@/components/FeasibilityIssuesPanel";
 import type { FeasibilityDiagnostics } from "@/types/optimization";
 
-type FlowCheckStatus = "checking" | "valid" | "invalid" | null;
+type FlowCheckStatus = "checking" | "valid" | "invalid" | "empty" | null;
 
 interface DayInfo {
   dayNumber: number;
@@ -27,6 +27,7 @@ interface CMIHeaderProps {
   };
   flowCheckStatus: FlowCheckStatus;
   flowCheckErrors: string[];
+  flowCheckEmptyMessage: string | null;
   flowCheckDiagnostics: FeasibilityDiagnostics | null;
   infeasibleTasks: Array<{ id: number; name: string }>;
   getDayInfo: (date: string) => DayInfo | null;
@@ -34,6 +35,7 @@ interface CMIHeaderProps {
   onOptimise: () => void;
   onOptimiseAllDays: () => void;
   allDaysRunning: boolean;
+  ignoredTaskCount: number;
   onPreviousDay: () => void;
   onNextDay: () => void;
   onInfeasibleTaskClick?: (taskId: number) => void;
@@ -44,6 +46,7 @@ export function CMIHeader({
   selectedEvent,
   flowCheckStatus,
   flowCheckErrors,
+  flowCheckEmptyMessage,
   flowCheckDiagnostics,
   infeasibleTasks,
   getDayInfo,
@@ -51,6 +54,7 @@ export function CMIHeader({
   onOptimise,
   onOptimiseAllDays,
   allDaysRunning,
+  ignoredTaskCount,
   onPreviousDay,
   onNextDay,
   onInfeasibleTaskClick,
@@ -152,6 +156,15 @@ export function CMIHeader({
 
           {/* Flow status indicator */}
           <div className="flex items-center gap-2">
+            {ignoredTaskCount > 0 && (
+              <Tooltip
+                content={`${ignoredTaskCount} ${ignoredTaskCount === 1 ? "task is" : "tasks are"} excluded from flow checking and optimisation.`}
+              >
+                <span className="rounded-full border border-bordercl bg-surface-inset px-2 py-0.5 text-xs font-medium text-foreground-muted">
+                  {ignoredTaskCount} ignored for checks
+                </span>
+              </Tooltip>
+            )}
             {flowCheckStatus === "checking" && !staleStatus && (
               <div
                 className={`flex items-center gap-1 ${confidenceClasses(
@@ -324,6 +337,13 @@ export function CMIHeader({
                     {infeasibleTasks.length}
                   </span>
                 </button>
+              </Tooltip>
+            )}
+            {flowCheckStatus === "empty" && (
+              <Tooltip content={flowCheckEmptyMessage || "Nothing to check."}>
+                <span className="text-xs font-medium text-foreground-muted">
+                  Nothing to check
+                </span>
               </Tooltip>
             )}
           </div>

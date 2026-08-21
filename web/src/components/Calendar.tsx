@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, PencilLine } from "lucide-react";
+import { AlertTriangle, EyeOff, PencilLine } from "lucide-react";
 import { Tooltip } from "@/components/ui";
 import {
   normaliseScheduleDayRange,
@@ -127,6 +127,7 @@ type CalendarProps = {
   }) => void;
   infeasibleTaskIds?: Set<number>;
   infeasibleTaskErrors?: Map<number, string[]>;
+  ignoredTaskIds?: ReadonlySet<number>;
   persons?: Array<{ id: number; first_name: string; last_name: string }>;
   onPersonRightClick?: (
     taskId: number,
@@ -203,6 +204,7 @@ type CalendarCardProps = {
   onRelativeDragOver?: () => void;
   isDragging?: boolean;
   isInfeasible?: boolean;
+  isIgnored?: boolean;
   infeasibleErrors?: string[];
   persons?: Array<{ id: number; first_name: string; last_name: string }>;
   onPersonRightClick?: (
@@ -266,6 +268,7 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
   onRelativeDragOver,
   isDragging = false,
   isInfeasible = false,
+  isIgnored = false,
   infeasibleErrors,
   persons,
   onPersonRightClick,
@@ -313,10 +316,19 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
   const conflictCount = task.conflicts?.count ?? conflictMessages.length;
   const hasConflict = conflictCount > 0;
   const checkIssueMessages = infeasibleErrors ?? [];
-  const hasCheckIssue = hasConflict || isInfeasible;
+  const hasCheckIssue = !isIgnored && (hasConflict || isInfeasible);
 
   const renderStatusMarkers = () => (
     <>
+      {isIgnored && (
+        <span
+          aria-label="Ignored by flow checking and optimisation"
+          title="Ignored: this task is excluded from flow checking and optimisation."
+          className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-slate-500/15 text-slate-700 leading-none ring-1 ring-slate-500/30 dark:text-slate-200"
+        >
+          <EyeOff className="block h-2.5 w-2.5" />
+        </span>
+      )}
       {hasManualChange && (
         <span
           aria-label="Edited task"
@@ -847,6 +859,12 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
     <div
       ref={cardRef}
       data-task-id={task.id}
+      data-solver-ignored={isIgnored ? "true" : undefined}
+      aria-label={
+        isIgnored
+          ? `${task.name}. Ignored by flow checking and optimisation.`
+          : undefined
+      }
       data-presentation-card={presentationMode ? "true" : undefined}
       className={`rounded-md ${
         presentationMode ? "border" : "border-2"
@@ -876,10 +894,15 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
         isHighlighted
           ? "ring-2 ring-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.6)]"
           : ""
-      } group relative overflow-visible`}
+      } ${isIgnored ? "opacity-60 saturate-50" : ""} group relative overflow-visible`}
       style={{
         backgroundColor,
         borderColor,
+        ...(isIgnored && {
+          backgroundImage:
+            "repeating-linear-gradient(135deg, transparent 0, transparent 7px, rgba(100,116,139,0.22) 7px, rgba(100,116,139,0.22) 9px)",
+          borderStyle: "dashed",
+        }),
         ...(isHDragging && {
           transform: `translateX(${hDragDelta}px)`,
           zIndex: 200,
@@ -1142,7 +1165,7 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
         </div>
       )}
 
-      {(hasManualChange || hasCheckIssue) && (
+      {(isIgnored || hasManualChange || hasCheckIssue) && (
         <div className="absolute top-0.5 right-0.5 z-20 flex items-center gap-1">
           {renderStatusMarkers()}
         </div>
@@ -1161,6 +1184,12 @@ const CalendarCard: React.FC<CalendarCardProps> = ({
         }}
       >
         <div className="space-y-2">
+          {isIgnored && (
+            <div className="flex items-center gap-1.5 rounded bg-black/20 px-2 py-1 font-semibold">
+              <EyeOff className="h-3.5 w-3.5" />
+              Ignored for flow checking and optimisation
+            </div>
+          )}
           {/* Time */}
           {getTimeDisplay() && (
             <div>
@@ -1268,6 +1297,7 @@ type DailyViewProps = {
   }) => void;
   infeasibleTaskIds?: Set<number>;
   infeasibleTaskErrors?: Map<number, string[]>;
+  ignoredTaskIds?: ReadonlySet<number>;
   persons?: Array<{ id: number; first_name: string; last_name: string }>;
   onPersonRightClick?: (
     taskId: number,
@@ -1307,6 +1337,7 @@ const DailyView: React.FC<DailyViewProps> = ({
   onSlotDoubleClick,
   infeasibleTaskIds,
   infeasibleTaskErrors,
+  ignoredTaskIds,
   persons,
   onPersonRightClick,
   masterplanMode = false,
@@ -2600,6 +2631,7 @@ const DailyView: React.FC<DailyViewProps> = ({
                       selectedTaskIds={selectedTaskIds}
                       allTasks={tasks}
                       isInfeasible={infeasibleTaskIds?.has(Math.floor(task.id))}
+                      isIgnored={ignoredTaskIds?.has(Math.floor(task.id))}
                       infeasibleErrors={infeasibleTaskErrors?.get(
                         Math.floor(task.id),
                       )}
@@ -2703,6 +2735,7 @@ const Calendar: React.FC<CalendarProps> = ({
   onSlotDoubleClick,
   infeasibleTaskIds,
   infeasibleTaskErrors,
+  ignoredTaskIds,
   persons,
   onPersonRightClick,
   masterplanMode,
@@ -2734,6 +2767,7 @@ const Calendar: React.FC<CalendarProps> = ({
       onSlotDoubleClick={onSlotDoubleClick}
       infeasibleTaskIds={infeasibleTaskIds}
       infeasibleTaskErrors={infeasibleTaskErrors}
+      ignoredTaskIds={ignoredTaskIds}
       persons={persons}
       onPersonRightClick={onPersonRightClick}
       masterplanMode={masterplanMode}

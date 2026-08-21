@@ -149,7 +149,7 @@ export function getPublishTargetConfidence(
 
 /** Convert the CMI satisfiability check into the shared confidence language. */
 export function getFlowCheckConfidence(
-  status?: "checking" | "valid" | "invalid" | null,
+  status?: "checking" | "valid" | "invalid" | "empty" | null,
 ): ConfidenceDescriptor {
   switch (status) {
     case "valid":
@@ -163,6 +163,12 @@ export function getFlowCheckConfidence(
         level: "blocked",
         label: "Conflicts",
         description: "Fix the listed bottlenecks before optimising.",
+      };
+    case "empty":
+      return {
+        level: "unknown",
+        label: "Nothing to Check",
+        description: "No solver-active tasks are available for this check.",
       };
     case "checking":
       return {

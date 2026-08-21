@@ -7,6 +7,9 @@ interface SelectedTasksPanelProps {
   onDelete: () => void;
   onExport?: () => void;
   exportDisabled?: boolean;
+  onToggleIgnored?: () => void;
+  ignoreActionLabel?: string;
+  ignoreActionDisabled?: boolean;
   customActions?: React.ReactNode;
   customHints?: React.ReactNode;
 }
@@ -18,6 +21,9 @@ export function SelectedTasksPanel({
   onDelete,
   onExport,
   exportDisabled = false,
+  onToggleIgnored,
+  ignoreActionLabel = "Ignore for checks",
+  ignoreActionDisabled = false,
   customActions,
   customHints,
 }: SelectedTasksPanelProps) {
@@ -57,6 +63,15 @@ export function SelectedTasksPanel({
             customActions
           ) : (
             <>
+              {onToggleIgnored && (
+                <button
+                  onClick={onToggleIgnored}
+                  disabled={ignoreActionDisabled}
+                  className={actionButton}
+                >
+                  {ignoreActionLabel}
+                </button>
+              )}
               <button onClick={onDuplicate} className={actionButton}>
                 Duplicate
               </button>
