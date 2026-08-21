@@ -144,6 +144,15 @@ export const SHORTCUT_DEFINITIONS = [
     defaultBinding: "Escape",
   },
   {
+    id: "cmi.toggleIgnored",
+    scope: "cmi",
+    group: "CMI",
+    label: "Ignore or Include Selected Tasks",
+    description:
+      "Toggle selected tasks in flow checking and optimisation without changing them.",
+    defaultBinding: "I",
+  },
+  {
     id: "cmi.deleteSelected",
     scope: "cmi",
     group: "CMI",
@@ -456,7 +465,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement ||
-    target.isContentEditable
+    Boolean(target.isContentEditable)
   );
 }
 

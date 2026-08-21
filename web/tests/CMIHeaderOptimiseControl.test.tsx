@@ -22,7 +22,7 @@ function renderHeader({
   onOptimise = vi.fn(),
   onOptimiseAllDays = vi.fn(),
 }: {
-  flowCheckStatus?: "checking" | "valid" | "invalid" | null;
+  flowCheckStatus?: "checking" | "valid" | "invalid" | "empty" | null;
   onOptimise?: () => void;
   onOptimiseAllDays?: () => void;
 } = {}) {
@@ -36,6 +36,11 @@ function renderHeader({
       }}
       flowCheckStatus={flowCheckStatus}
       flowCheckErrors={[]}
+      flowCheckEmptyMessage={
+        flowCheckStatus === "empty"
+          ? "Nothing to check — all tasks are ignored."
+          : null
+      }
       flowCheckDiagnostics={null}
       infeasibleTasks={[]}
       getDayInfo={() => ({
@@ -47,6 +52,7 @@ function renderHeader({
       onOptimise={onOptimise}
       onOptimiseAllDays={onOptimiseAllDays}
       allDaysRunning={false}
+      ignoredTaskCount={flowCheckStatus === "empty" ? 2 : 0}
       onPreviousDay={vi.fn()}
       onNextDay={vi.fn()}
     />,
@@ -103,5 +109,13 @@ describe("CMIHeader optimisation control", () => {
     expect(allDaysButton).toBeEnabled();
     fireEvent.click(allDaysButton, { shiftKey: true });
     expect(onOptimiseAllDays).toHaveBeenCalledOnce();
+  });
+
+  it("shows an explicit neutral state when every task is ignored", () => {
+    renderHeader({ flowCheckStatus: "empty" });
+
+    expect(screen.getByText("2 ignored for checks")).toBeInTheDocument();
+    expect(screen.getByText("Nothing to check")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Optimise day" })).toBeDisabled();
   });
 });

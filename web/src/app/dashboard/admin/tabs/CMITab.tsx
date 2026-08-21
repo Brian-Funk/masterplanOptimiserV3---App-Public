@@ -43,6 +43,10 @@ import {
 import { formatDateWithWeekday } from "@/lib/dateFormat";
 import { TemplateSelectorModal } from "./cmi/TemplateSelectorModal";
 import { performFlowCheck } from "./cmi/flowCheckUtils";
+import {
+  prepareSolverTasksForWorkingDay,
+  shouldIgnoreSelectedTasks,
+} from "./cmi/solverTaskPreparation";
 import { getFlowCheckMode } from "@/app/dashboard/settings/components/SolverSettingsSection";
 import { optimizationApi } from "@/lib/optimizationApi";
 import { useOptimization } from "@/contexts/OptimizationContext";
@@ -59,8 +63,6 @@ import {
   addDays,
   getActualDateForWorkingSlot,
   getScheduleDayBoundaryFromRange,
-  getWorkingDayForDateTime,
-  lineariseTaskTimesForWorkingDay,
   minutesToClockTime,
   toWorkingDayMinutes,
 } from "@/lib/workingDayBoundary";
@@ -109,7 +111,7 @@ interface CMITabProps {
 export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
   const { optimizationState, startOptimization } = useOptimization();
   const { addToast } = useToast();
-  const { matchesShortcut } = useShortcuts();
+  const { matchesShortcut, getShortcutBinding } = useShortcuts();
   const {
     instances: contextInstances,
     createInstance,
@@ -117,6 +119,8 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     updateInstance,
     deleteInstance,
     deleteInstances,
+    ignoredTaskIds,
+    setTasksIgnored,
   } = useTaskInstances();
 
   // Keep a ref to always have the latest instances (avoids stale closures)
@@ -142,6 +146,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
   );
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExportingTasks, setIsExportingTasks] = useState(false);
+  const [isUpdatingIgnoredTasks, setIsUpdatingIgnoredTasks] = useState(false);
   const [showOptimiseAllDays, setShowOptimiseAllDays] = useState(false);
   const [optimiseAllRunning, setOptimiseAllRunning] = useState(false);
   const [allDaysSteps, setAllDaysSteps] = useState<AllDaysStep[]>([]);
@@ -169,8 +174,11 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
 
   // Flow check state
   const [flowCheckStatus, setFlowCheckStatus] = useState<
-    "checking" | "valid" | "invalid" | null
+    "checking" | "valid" | "invalid" | "empty" | null
   >(null);
+  const [flowCheckEmptyMessage, setFlowCheckEmptyMessage] = useState<string | null>(
+    null,
+  );
   const [flowCheckErrors, setFlowCheckErrors] = useState<string[]>([]);
   const [flowCheckDiagnostics, setFlowCheckDiagnostics] = useState<
     import("@/types/optimization").FeasibilityDiagnostics | null
@@ -227,48 +235,25 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     ],
   );
 
-  const getInstanceStartClock = useCallback(
-    (instance: any): string | null => {
-      const template = templates.find((t: any) => t.id === instance.template_id);
-      if (!template?.fields || !instance.field_values) return null;
-
-      for (const field of template.fields) {
-        const value = instance.field_values[field.id];
-        if (field.type === "start_end_time" && value?.start) return value.start;
-        if (field.type === "time_range" && value?.start) return value.start;
-        if (field.type === "time" && typeof value === "string") return value;
-      }
-      return null;
-    },
-    [templates],
-  );
-
-  const isInstanceInSelectedWorkingDay = useCallback(
-    (instance: any) =>
-      getWorkingDayForDateTime(
-        instance.date,
-        getInstanceStartClock(instance),
+  const prepareTasksForWorkingDay = useCallback(
+    (date: string, skipFloating = false) =>
+      prepareSolverTasksForWorkingDay({
+        eventId: selectedEvent?.id,
+        selectedDate: date,
+        templates,
+        taskTypes,
+        taskInstances: contextInstances,
+        ignoredTaskIds,
         scheduleDayBoundary,
-      ) === selectedDate,
-    [getInstanceStartClock, scheduleDayBoundary, selectedDate],
-  );
-
-  const getEventTasksForWorkingDay = useCallback(
-    (date: string) =>
-      contextInstances.filter(
-        (instance: any) =>
-          instance.event_id === selectedEvent?.id &&
-          getWorkingDayForDateTime(
-            instance.date,
-            getInstanceStartClock(instance),
-            scheduleDayBoundary,
-          ) === date,
-      ),
+        skipFloating,
+      }),
     [
       contextInstances,
-      getInstanceStartClock,
+      ignoredTaskIds,
       scheduleDayBoundary,
       selectedEvent?.id,
+      taskTypes,
+      templates,
     ],
   );
 
@@ -281,6 +266,63 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         .filter((instance): instance is TaskInstance => Boolean(instance)),
     [contextInstances, selectedTasksForLock],
   );
+
+  const allSelectedTasksIgnored =
+    selectedTasksForLock.length > 0 &&
+    selectedTasksForLock.every((taskId) => ignoredTaskIds.has(taskId));
+
+  const handleToggleSelectedIgnored = useCallback(async () => {
+    if (selectedTasksForLock.length === 0 || isUpdatingIgnoredTasks) return;
+    if (optimizationState.isOptimizing || optimiseAllRunning) {
+      addToast(
+        "Wait for the current optimisation to finish before changing ignored tasks.",
+        "warning",
+      );
+      return;
+    }
+
+    const shouldIgnore = shouldIgnoreSelectedTasks(
+      selectedTasksForLock,
+      ignoredTaskIds,
+    );
+    setIsUpdatingIgnoredTasks(true);
+    try {
+      await setTasksIgnored(selectedTasksForLock, shouldIgnore);
+      flowCheckAbortRef.current?.abort();
+      flowCheckGenerationRef.current += 1;
+      setFlowCheckStatus("checking");
+      setFlowCheckEmptyMessage(null);
+      setFlowCheckErrors([]);
+      setFlowCheckDiagnostics(null);
+      setInfeasibleTaskIds(new Set());
+      setInfeasibleTaskErrors(new Map());
+      const count = selectedTasksForLock.length;
+      addToast(
+        shouldIgnore
+          ? `${count} ${count === 1 ? "task" : "tasks"} ignored for flow checking and optimisation. Task data and existing results were not changed.`
+          : `${count} ${count === 1 ? "task" : "tasks"} included in flow checking and optimisation again.`,
+        "success",
+      );
+    } catch (error) {
+      console.error("Failed to update ignored tasks:", error);
+      addToast(
+        error instanceof Error
+          ? error.message
+          : "Ignored tasks could not be updated.",
+        "error",
+      );
+    } finally {
+      setIsUpdatingIgnoredTasks(false);
+    }
+  }, [
+    addToast,
+    ignoredTaskIds,
+    isUpdatingIgnoredTasks,
+    optimiseAllRunning,
+    optimizationState.isOptimizing,
+    selectedTasksForLock,
+    setTasksIgnored,
+  ]);
 
   const generalScheduleBlocks = useMemo<CalendarBackgroundBlock[]>(
     () =>
@@ -353,9 +395,23 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isEditableTarget(e.target)) return;
+      if (
+        editingTask ||
+        showTemplateSelector ||
+        showExportModal ||
+        showOptimiseAllDays
+      ) {
+        return;
+      }
 
       // No tasks selected - no action needed
       if (selectedTasksForLock.length === 0) return;
+
+      if (matchesShortcut(e, "cmi.toggleIgnored")) {
+        e.preventDefault();
+        void handleToggleSelectedIgnored();
+        return;
+      }
 
       if (matchesShortcut(e, "cmi.deleteSelected")) {
         e.preventDefault();
@@ -402,7 +458,17 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [matchesShortcut, selectedTasksForLock, tasks, taskTypes]);
+  }, [
+    handleToggleSelectedIgnored,
+    editingTask,
+    matchesShortcut,
+    selectedTasksForLock,
+    showExportModal,
+    showOptimiseAllDays,
+    showTemplateSelector,
+    tasks,
+    taskTypes,
+  ]);
 
   const fetchData = async () => {
     if (!selectedEvent) return;
@@ -1434,6 +1500,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     const generation = ++flowCheckGenerationRef.current;
 
     setFlowCheckStatus("checking");
+    setFlowCheckEmptyMessage(null);
     try {
       const result = await performFlowCheck({
         selectedEvent,
@@ -1444,6 +1511,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         locations,
         taskInstances: contextInstances,
         scheduleDayBoundary,
+        ignoredTaskIds,
         silent,
         signal: controller.signal,
         // Skip floating tasks in auto-checks only when mode is "skip-floating"
@@ -1454,6 +1522,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
       if (generation !== flowCheckGenerationRef.current) return;
 
       setFlowCheckStatus(result.status);
+      setFlowCheckEmptyMessage(result.emptyMessage ?? null);
       setFlowCheckErrors(result.errors);
       setFlowCheckDiagnostics(result.diagnostics);
       setInfeasibleTaskIds(result.infeasibleTaskIds);
@@ -1469,6 +1538,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     (date: string, result: Awaited<ReturnType<typeof performFlowCheck>>) => {
       if (date !== selectedDate) return;
       setFlowCheckStatus(result.status);
+      setFlowCheckEmptyMessage(result.emptyMessage ?? null);
       setFlowCheckErrors(result.errors);
       setFlowCheckDiagnostics(result.diagnostics);
       setInfeasibleTaskIds(result.infeasibleTaskIds);
@@ -1488,6 +1558,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         locations,
         taskInstances: instancesRef.current,
         scheduleDayBoundary,
+        ignoredTaskIds,
         silent: true,
         skipFloating: false,
       });
@@ -1497,6 +1568,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     [
       applyFlowResultToSelectedDay,
       locations,
+      ignoredTaskIds,
       persons,
       scheduleDayBoundary,
       selectedEvent,
@@ -1519,54 +1591,17 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
   const runOptimisationForDate = useCallback(
     async (date: string) => {
       assertPeopleHaveHomeLocations();
-      const eventTasks = getEventTasksForWorkingDay(date);
-      if (eventTasks.length === 0) {
+      const prepared = prepareTasksForWorkingDay(date);
+      if (prepared.allTaskInstances.length === 0) {
         throw new Error("No tasks were found for this day.");
       }
-
-      const tasksWithLocation = eventTasks.map((task: any) => {
-        const template = templates.find(
-          (candidate: any) => candidate.id === task.template_id,
+      if (prepared.activeTaskInstances.length === 0) {
+        throw new Error(
+          "Nothing to optimise because all tasks on this day are ignored.",
         );
-        const taskType = taskTypes.find(
-          (candidate) => candidate.id === task.task_type_id,
-        );
-        let locationId = null;
-        const isFloating = template?.is_floating || false;
-        const isTransfer = template?.is_transfer || false;
+      }
 
-        if (template?.fields && task.field_values) {
-          const locationField = template.fields.find(
-            (field: any) =>
-              field.type === "location" || field.type === "start_location",
-          );
-          if (locationField) {
-            const value = task.field_values[locationField.id];
-            locationId =
-              value === null
-                ? null
-                : typeof value === "number"
-                  ? value
-                  : value?.value;
-          }
-        }
-
-        return {
-          ...task,
-          id: Math.floor(task.id),
-          location_id: locationId,
-          is_floating: isFloating,
-          is_transfer: isTransfer,
-          counts_towards_work_time:
-            taskType?.counts_towards_work_time !== false,
-        };
-      });
-
-      const validTasks = tasksWithLocation
-        .filter((task: any) => task.location_id !== undefined)
-        .map((task: any) =>
-          lineariseTaskTimesForWorkingDay(task, date, scheduleDayBoundary),
-        );
+      const validTasks = prepared.solverTasks;
       if (validTasks.length === 0) {
         throw new Error(
           "No tasks with valid locations were found. Check the task locations before optimising.",
@@ -1627,14 +1662,13 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     },
     [
       assertPeopleHaveHomeLocations,
-      getEventTasksForWorkingDay,
       locations,
       persons,
+      prepareTasksForWorkingDay,
       scheduleDayBoundary,
       selectedEvent,
       startOptimization,
       taskTypes,
-      templates,
     ],
   );
 
@@ -1669,11 +1703,24 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         initialSteps,
         onChange: setAllDaysSteps,
         checkFlow: async (date) => {
-          if (getEventTasksForWorkingDay(date).length === 0) {
+          const prepared = prepareTasksForWorkingDay(date);
+          if (prepared.allTaskInstances.length === 0) {
             return { status: "skipped", detail: "No tasks for this day." };
+          }
+          if (prepared.activeTaskInstances.length === 0) {
+            return {
+              status: "skipped",
+              detail: "All tasks on this day are ignored.",
+            };
           }
           try {
             const result = await runFullFlowCheckForDate(date);
+            if (result.status === "empty") {
+              return {
+                status: "skipped",
+                detail: result.emptyMessage || "Nothing to check.",
+              };
+            }
             if (result.status !== "valid") {
               return {
                 status: "failed",
@@ -1728,9 +1775,9 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     addToast,
     assertPeopleHaveHomeLocations,
     getDayLabel,
-    getEventTasksForWorkingDay,
     optimiseAllRunning,
     optimizationState.isOptimizing,
+    prepareTasksForWorkingDay,
     runFullFlowCheckForDate,
     runOptimisationForDate,
     selectedEvent.end_date,
@@ -1740,13 +1787,22 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
   // Auto-check flow when data changes (debounced, cancel-and-replace)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      // Only auto-check if there are tasks and persons
-      const eventTasks = contextInstances.filter(
-        (instance: any) => instance.event_id === selectedEvent?.id,
-      );
-
-      if (eventTasks.length > 0 && persons.length > 0 && locations.length > 0) {
+      const prepared = prepareTasksForWorkingDay(selectedDate);
+      if (
+        prepared.allTaskInstances.length > 0 &&
+        persons.length > 0 &&
+        locations.length > 0
+      ) {
         handleSendToFlowCheck(true); // Silent auto-check (skips floating tasks)
+      } else if (prepared.allTaskInstances.length === 0) {
+        flowCheckAbortRef.current?.abort();
+        flowCheckGenerationRef.current += 1;
+        setFlowCheckStatus("empty");
+        setFlowCheckEmptyMessage("Nothing to check because this day has no tasks.");
+        setFlowCheckErrors([]);
+        setFlowCheckDiagnostics(null);
+        setInfeasibleTaskIds(new Set());
+        setInfeasibleTaskErrors(new Map());
       }
     }, 1500); // 1.5 second debounce
 
@@ -1756,9 +1812,15 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
     locations,
     capabilities,
     selectedDate,
-    contextInstances,
+    ignoredTaskIds,
     scheduleDayBoundary.offsetHour,
+    prepareTasksForWorkingDay,
   ]);
+
+  const currentDayIgnoredCount = useMemo(
+    () => prepareTasksForWorkingDay(selectedDate).ignoredCount,
+    [prepareTasksForWorkingDay, selectedDate],
+  );
 
   if (!selectedEvent) {
     return (
@@ -1776,6 +1838,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         selectedEvent={selectedEvent}
         flowCheckStatus={flowCheckStatus}
         flowCheckErrors={flowCheckErrors}
+        flowCheckEmptyMessage={flowCheckEmptyMessage}
         flowCheckDiagnostics={flowCheckDiagnostics}
         infeasibleTasks={infeasibleTasks}
         getDayInfo={getDayInfo}
@@ -1783,36 +1846,15 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         onInfeasibleTaskClick={handleInfeasibleTaskClick}
         onOptimiseAllDays={handleOptimiseAllDays}
         allDaysRunning={optimiseAllRunning}
+        ignoredTaskCount={currentDayIgnoredCount}
         onOptimise={async () => {
-          // --- Run a FULL flow check (including floating tasks) before optimising ---
-          // When mode is "always-full", auto-checks already include floating tasks,
-          // but we still gate on the current status. When "skip-floating", we must
-          // run a fresh full check since auto-checks skipped floating tasks.
           const mode = getFlowCheckMode();
           if (mode === "skip-floating") {
             setFlowCheckStatus("checking");
+            setFlowCheckEmptyMessage(null);
             try {
-              const fullCheck = await performFlowCheck({
-                selectedEvent,
-                selectedDate,
-                templates,
-                taskTypes,
-                persons,
-                locations,
-                taskInstances: contextInstances,
-                scheduleDayBoundary,
-                silent: true,
-                skipFloating: false, // include floating tasks
-              });
-              setFlowCheckStatus(fullCheck.status);
-              setFlowCheckErrors(fullCheck.errors);
-              setFlowCheckDiagnostics(fullCheck.diagnostics);
-              setInfeasibleTaskIds(fullCheck.infeasibleTaskIds);
-              setInfeasibleTaskErrors(fullCheck.infeasibleTaskErrors);
-
-              if (fullCheck.status === "invalid") {
-                return;
-              }
+              const fullCheck = await runFullFlowCheckForDate(selectedDate);
+              if (fullCheck.status !== "valid") return;
             } catch (err) {
               console.error("Pre-optimise flow check failed:", err);
               alert(
@@ -1821,171 +1863,12 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
               setFlowCheckStatus("invalid");
               return;
             }
-          } else {
-            // "always-full" mode  -  auto-check already validated floating tasks.
-            // Just verify the current status is not "invalid".
-            if (flowCheckStatus === "invalid") {
-              return;
-            }
-          }
-
-          // Check if all persons have home locations
-          const personsWithoutHomeLocation = persons.filter(
-            (person) => !person.home_location_id,
-          );
-
-          if (personsWithoutHomeLocation.length > 0) {
-            const names = personsWithoutHomeLocation
-              .map((p) => `${p.first_name} ${p.last_name}`)
-              .join(", ");
-            alert(
-              `Cannot optimise: The following persons do not have a home location assigned: ${names}. Please assign home locations in the Users section before optimising.`,
-            );
-            return;
-          }
-
-          // Get task instances for this event and date (same as flow checker)
-          const eventTasks = contextInstances.filter(
-            (instance: any) =>
-              instance.event_id === selectedEvent?.id &&
-              isInstanceInSelectedWorkingDay(instance),
-          );
-
-          if (eventTasks.length === 0) {
-            alert(
-              "No tasks found for this date. Please add tasks before optimising.",
-            );
-            return;
-          }
-
-          // Extract location_id from field_values using template (exactly like flow checker)
-          const tasksWithLocation = eventTasks.map((task: any) => {
-            const template = templates.find(
-              (t: any) => t.id === task.template_id,
-            );
-            const taskType = taskTypes.find(
-              (type) => type.id === task.task_type_id,
-            );
-
-            let locationId = null;
-            const isFloating = template?.is_floating || false;
-            const isTransfer = template?.is_transfer || false;
-
-            // Find location field from template (same as flow checker)
-            if (template?.fields && task.field_values) {
-              const locationField = template.fields.find(
-                (f: any) =>
-                  f.type === "location" || f.type === "start_location",
-              );
-
-              if (locationField) {
-                const locationFieldValue = task.field_values[locationField.id];
-
-                locationId =
-                  locationFieldValue === null
-                    ? null // Preserve null = "Any Location" (solver picks)
-                    : typeof locationFieldValue === "number"
-                      ? locationFieldValue
-                      : locationFieldValue?.value;
-              }
-            }
-
-            return {
-              ...task,
-              id: Math.floor(task.id), // Convert float IDs to integers
-              location_id: locationId,
-              is_floating: isFloating,
-              is_transfer: isTransfer,
-              counts_towards_work_time:
-                taskType?.counts_towards_work_time !== false,
-            };
-          });
-
-          // Allow tasks with null location (any-location tasks) - only exclude undefined
-          const validTasks = tasksWithLocation.filter(
-            (task: any) => task.location_id !== undefined,
-          ).map((task: any) =>
-            lineariseTaskTimesForWorkingDay(
-              task,
-              selectedDate,
-              scheduleDayBoundary,
-            ),
-          );
-
-          if (validTasks.length === 0) {
-            alert(
-              "No tasks with valid locations found. Please ensure all tasks have locations assigned.",
-            );
-            return;
-          }
-
-          // Fetch capabilities from API (like flow checker)
-          const capabilities = await capabilitiesApi.getAll(selectedEvent.id);
-
-          // Build fatigue_scores map from task types
-          const fatigueScores: { [key: number]: number } = {};
-          taskTypes.forEach((taskType) => {
-            fatigueScores[taskType.id] = taskType.fatigue_score ?? 1.0;
-          });
-
-          // Look up previous day's fatigue for carry-over
-          let personsWithFatigue = persons;
-          try {
-            const prevDate = new Date(selectedDate + "T00:00:00");
-            prevDate.setDate(prevDate.getDate() - 1);
-            const prevDateStr = prevDate.toISOString().split("T")[0];
-
-            const jobList = await optimizationApi.getJobsForEvent(
-              selectedEvent.id,
-            );
-            const prevJob = jobList.jobs.find(
-              (j) => j.date === prevDateStr && j.status === "completed",
-            );
-            if (prevJob) {
-              const prevStatus = await optimizationApi.getJobStatus(
-                prevJob.id,
-                selectedEvent.id,
-              );
-              const perPerson =
-                prevStatus.result_data?.fatigue_stats?.per_person;
-              if (perPerson && typeof perPerson === "object") {
-                personsWithFatigue = persons.map((p: any) => ({
-                  ...p,
-                  initial_fatigue: perPerson[String(p.id)] ?? 0,
-                }));
-                console.log(
-                  `[Optimize] Loaded initial_fatigue from previous day (${prevDateStr})`,
-                );
-              }
-            }
-          } catch (err) {
-            console.warn(
-              "[Optimize] Could not load previous day fatigue, using 0:",
-              err,
-            );
-          }
-
-          // Prepare optimization request (same structure as flow checker + fatigue_scores)
-          const optimizationRequest = {
-            event_id: selectedEvent.id,
-            date: selectedDate,
-            working_day_boundary_offset_hour: scheduleDayBoundary.offsetHour,
-            test_mode: false, // Always use real optimizer
-            tasks: validTasks,
-            persons: personsWithFatigue,
-            locations: locations,
-            capabilities: capabilities,
-            fatigue_scores: fatigueScores,
-          };
+          } else if (flowCheckStatus !== "valid") return;
 
           try {
-            const result =
-              await optimizationApi.startOptimization(optimizationRequest);
-
-            // Track optimization in context
-            startOptimization(selectedEvent.id, selectedDate, result.job_id);
+            await runOptimisationForDate(selectedDate);
           } catch (error) {
-            console.error("Error starting optimization:", error);
+            console.error("Error starting optimisation:", error);
             alert(
               `Failed to start optimisation:\n\n${
                 error instanceof Error ? error.message : "Unknown error"
@@ -2005,9 +1888,22 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
         onDelete={handleDeleteSelectedTasks}
         onExport={() => setShowExportModal(true)}
         exportDisabled={isExportingTasks}
+        onToggleIgnored={() => void handleToggleSelectedIgnored()}
+        ignoreActionLabel={
+          allSelectedTasksIgnored ? "Include in checks" : "Ignore for checks"
+        }
+        ignoreActionDisabled={
+          isUpdatingIgnoredTasks ||
+          optimizationState.isOptimizing ||
+          optimiseAllRunning
+        }
         customHints={
           <p className="mt-0.5 text-xs text-foreground-muted">
             Press{" "}
+            <kbd className="rounded border border-bordercl bg-surface-inset px-1.5 py-0.5 font-mono text-[11px] text-foreground-secondary">
+              {getShortcutBinding("cmi.toggleIgnored") || "Unassigned"}
+            </kbd>{" "}
+            to ignore/include •{" "}
             <kbd className="rounded border border-bordercl bg-surface-inset px-1.5 py-0.5 font-mono text-[11px] text-foreground-secondary">
               D
             </kbd>{" "}
@@ -2077,6 +1973,7 @@ export function CMITab({ selectedEvent, onOpenGeneralSchedule }: CMITabProps) {
             onSlotDoubleClick={handleSlotDoubleClick}
             infeasibleTaskIds={infeasibleTaskIds}
             infeasibleTaskErrors={infeasibleTaskErrors}
+            ignoredTaskIds={ignoredTaskIds}
             persons={persons}
           />
         </div>

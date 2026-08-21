@@ -48,4 +48,38 @@ describe("Calendar allocation row identity", () => {
     ).toBe(false);
     consoleError.mockRestore();
   });
+
+  it("keeps ignored CMI tasks visible, selectable, and clearly labelled", () => {
+    const task: CalendarTask = {
+      id: 9,
+      name: "Diagnostic task",
+      task_type_id: 1,
+      task_type_name: "Static",
+      task_type_color: "#2563EB",
+      date: "2032-04-21",
+      start_end_time: { start: "09:00", end: "10:00" },
+      fields: {},
+      field_definitions: [],
+    };
+
+    const { container } = render(
+      <Calendar
+        tasks={[task]}
+        viewType="daily"
+        selectedDate="2032-04-21"
+        onTaskEdit={vi.fn()}
+        selectedTaskIds={[9]}
+        ignoredTaskIds={new Set([9])}
+      />,
+    );
+
+    expect(screen.getByText("Diagnostic task")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Ignored by flow checking and optimisation"),
+    ).toBeInTheDocument();
+    const card = container.querySelector('[data-task-id="9"]');
+    expect(card).toHaveAttribute("data-solver-ignored", "true");
+    expect(card).toHaveClass("opacity-60", "saturate-50");
+    expect(card).toHaveClass("ring-4");
+  });
 });
