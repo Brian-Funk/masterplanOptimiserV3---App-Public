@@ -1696,6 +1696,7 @@ export const flowApi = {
   /** Run a flow feasibility check for an event and selected date. */
   check: async (
     data: {
+      event_id: number;
       tasks: any[];
       persons: any[];
       locations: any[];
@@ -1731,6 +1732,11 @@ export const flowApi = {
         errorMsg = errorData.detail.startsWith("Flow check failed:")
           ? errorData.detail
           : `Flow check failed: ${errorData.detail}`;
+      } else if (
+        errorData?.detail &&
+        typeof errorData.detail.message === "string"
+      ) {
+        errorMsg = errorData.detail.message;
       }
       throw new Error(errorMsg);
     }
@@ -1874,6 +1880,10 @@ export interface TaskInstanceUpdate {
   additional?: Record<string, any> | null;
 }
 
+export interface SolverExclusionResponse {
+  ignored_task_instance_ids: number[];
+}
+
 /** Client wrapper for task instance CRUD and optimisation result writes. */
 export const taskInstancesApi = {
   /** List all task instances for an event, optionally filtered by date. */
@@ -1883,6 +1893,51 @@ export const taskInstancesApi = {
     const response = await apiFetch(url);
     if (!response.ok) {
       throw new Error(`Failed to fetch task instances: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  /** List task instances excluded from flow checking and optimisation. */
+  getSolverExclusions: async (
+    eventId: number,
+  ): Promise<SolverExclusionResponse> => {
+    const response = await apiFetch(
+      `${API_BASE}/api/v1/task-instances/solver-exclusions?event_id=${eventId}`,
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch ignored tasks: ${response.statusText}`,
+      );
+    }
+    return response.json();
+  },
+
+  /** Persist one event-scoped collection as ignored or active. */
+  setSolverExclusions: async (
+    eventId: number,
+    taskInstanceIds: number[],
+    ignored: boolean,
+  ): Promise<SolverExclusionResponse> => {
+    const response = await apiFetch(
+      `${API_BASE}/api/v1/task-instances/solver-exclusions?event_id=${eventId}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task_instance_ids: taskInstanceIds,
+          ignored,
+        }),
+      },
+    );
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ detail: response.statusText }));
+      throw new Error(
+        typeof error.detail === "string"
+          ? error.detail
+          : "Failed to update ignored tasks.",
+      );
     }
     return response.json();
   },

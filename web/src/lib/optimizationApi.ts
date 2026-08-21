@@ -39,9 +39,16 @@ export const optimizationApi = {
             .join("\n");
           throw new Error(`Validation errors:\n${messages}`);
         }
+        if (typeof error.detail?.message === "string") {
+          throw new Error(error.detail.message);
+        }
       }
 
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(
+        typeof error.detail === "string"
+          ? error.detail
+          : `HTTP ${response.status}`,
+      );
     }
 
     return response.json();
