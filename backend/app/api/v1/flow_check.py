@@ -14,6 +14,7 @@ from pathlib import Path
 # Import database dependencies
 from app.db.database import get_db
 from app.core.debug_logging import debug_print
+from app.core.solver_exclusions import filter_solver_active_tasks
 
 # Import normalizer
 from app.core.normalizer import (
@@ -74,6 +75,7 @@ router = APIRouter()
 # ============================================================================
 
 class FlowCheckRequest(BaseModel):
+    event_id: int
     tasks: List[Task]
     persons: List[Person]
     locations: List[Location]
@@ -106,17 +108,32 @@ async def check_flow_endpoint(
     Returns list of errors if infeasible, empty list if feasible.
     """
     try:
+        active_tasks = filter_solver_active_tasks(
+            db,
+            request.event_id,
+            request.tasks,
+        )
+        if not active_tasks:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "NO_ACTIVE_TASKS",
+                    "message": "Nothing to check because all tasks are ignored.",
+                },
+            )
+
         debug_print("=" * 80)
         debug_print("FLOW CHECK API - RAW INPUT DATA")
         debug_print("=" * 80)
 
-        debug_print(f"Tasks: {len(request.tasks)}")
+        debug_print(f"Tasks: {len(active_tasks)}")
+        debug_print(f"Ignored tasks removed: {len(request.tasks) - len(active_tasks)}")
         debug_print(f"Persons: {len(request.persons)}")
         debug_print(f"Locations: {len(request.locations)}")
         debug_print(f"Capabilities: {len(request.capabilities)}")
 
         debug_print(f"\n--- RAW TASKS ---")
-        for i, task in enumerate(request.tasks):
+        for i, task in enumerate(active_tasks):
             debug_print(f"\nTask {i+1}:")
             debug_print(f"  ID: {task.id}")
             debug_print(f"  Name: {task.name}")
@@ -147,7 +164,7 @@ async def check_flow_endpoint(
 
         # Normalise the input data
         normalized = normalize_flow_input(
-            request.tasks,
+            active_tasks,
             request.persons,
             request.locations,
             request.capabilities,
@@ -268,6 +285,8 @@ async def check_flow_endpoint(
             feasible=len(all_errors) == 0,
             diagnostics=diagnostics,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
 

@@ -10,12 +10,17 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.core.task_payload_normalisation import normalise_task_json_id_lists
+from app.core.solver_exclusions import (
+    delete_solver_exclusions_for_task_ids,
+    get_solver_excluded_task_ids,
+)
 from app.models.task_instance import TaskInstance
+from app.models.task_instance_solver_exclusion import TaskInstanceSolverExclusion
 from app.models.task_template import TaskTemplate
 
 logger = logging.getLogger(__name__)
@@ -110,6 +115,19 @@ class BulkOptimisedRequest(BaseModel):
     items: List[BulkOptimisedItem]
 
 
+class SolverExclusionUpdate(BaseModel):
+    """Set one event-scoped collection of tasks active or ignored."""
+
+    task_instance_ids: List[int] = Field(min_length=1, max_length=10000)
+    ignored: bool
+
+
+class SolverExclusionResponse(BaseModel):
+    """The complete reconciled ignored-task set for an event."""
+
+    ignored_task_instance_ids: List[int]
+
+
 def _derive_template_flags(
     db: Session,
     template_id: Optional[int],
@@ -150,6 +168,72 @@ def list_task_instances(
     if date:
         q = q.filter(TaskInstance.date == date)
     return q.order_by(TaskInstance.id).all()
+
+
+@router.get("/solver-exclusions", response_model=SolverExclusionResponse)
+def list_solver_exclusions(
+    event_id: int = Query(...),
+    db: Session = Depends(get_db),
+):
+    """List persistent diagnostic exclusions without changing task records."""
+
+    return SolverExclusionResponse(
+        ignored_task_instance_ids=sorted(
+            get_solver_excluded_task_ids(db, event_id),
+        ),
+    )
+
+
+@router.put("/solver-exclusions", response_model=SolverExclusionResponse)
+def set_solver_exclusions(
+    body: SolverExclusionUpdate,
+    event_id: int = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Atomically ignore or include task instances scoped to one event."""
+
+    requested_ids = set(body.task_instance_ids)
+    existing_ids = {
+        int(row[0])
+        for row in (
+            db.query(TaskInstance.id)
+            .filter(
+                TaskInstance.event_id == event_id,
+                TaskInstance.id.in_(requested_ids),
+            )
+            .all()
+        )
+    }
+    if existing_ids != requested_ids:
+        raise HTTPException(
+            status_code=404,
+            detail="One or more task instances were not found in this event.",
+        )
+
+    if body.ignored:
+        already_ignored = {
+            int(row[0])
+            for row in (
+                db.query(TaskInstanceSolverExclusion.task_instance_id)
+                .filter(
+                    TaskInstanceSolverExclusion.task_instance_id.in_(requested_ids),
+                )
+                .all()
+            )
+        }
+        for task_instance_id in sorted(requested_ids - already_ignored):
+            db.add(
+                TaskInstanceSolverExclusion(task_instance_id=task_instance_id),
+            )
+    else:
+        delete_solver_exclusions_for_task_ids(db, requested_ids)
+
+    db.commit()
+    return SolverExclusionResponse(
+        ignored_task_instance_ids=sorted(
+            get_solver_excluded_task_ids(db, event_id),
+        ),
+    )
 
 
 @router.get("/{instance_id}", response_model=TaskInstanceResponse)
@@ -323,6 +407,7 @@ def delete_task_instance(
     if not inst:
         raise HTTPException(status_code=404, detail="Task instance not found in this event")
 
+    delete_solver_exclusions_for_task_ids(db, {inst.id})
     db.delete(inst)
     db.commit()
     return None
@@ -334,6 +419,15 @@ def delete_task_instances_for_event(
     db: Session = Depends(get_db),
 ):
     """Delete all task instances for an event."""
+    task_ids = {
+        int(row[0])
+        for row in (
+            db.query(TaskInstance.id)
+            .filter(TaskInstance.event_id == event_id)
+            .all()
+        )
+    }
+    delete_solver_exclusions_for_task_ids(db, task_ids)
     db.query(TaskInstance).filter(TaskInstance.event_id == event_id).delete()
     db.commit()
     return None

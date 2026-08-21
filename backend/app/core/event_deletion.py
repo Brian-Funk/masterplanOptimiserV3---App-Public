@@ -94,6 +94,18 @@ def cleanup_orphaned_event_scoped_data(db: Session) -> None:
     _execute_if_columns_exist(
         db,
         table_columns,
+        "task_instance_solver_exclusions",
+        {"task_instance_id"},
+        "DELETE FROM task_instance_solver_exclusions WHERE NOT EXISTS "
+        "(SELECT 1 FROM task_instances WHERE task_instances.id = "
+        "task_instance_solver_exclusions.task_instance_id) OR NOT EXISTS "
+        "(SELECT 1 FROM task_instances JOIN events ON events.id = "
+        "task_instances.event_id WHERE task_instances.id = "
+        "task_instance_solver_exclusions.task_instance_id)",
+    )
+    _execute_if_columns_exist(
+        db,
+        table_columns,
         "task_instances",
         {"event_id"},
         "DELETE FROM task_instances WHERE NOT EXISTS "
@@ -400,6 +412,14 @@ def delete_event_scoped_data(db: Session, event_id: int) -> None:
         "task_capability_requirements",
         "DELETE FROM task_capability_requirements WHERE task_id IN "
         "(SELECT id FROM tasks WHERE event_id = :eid)",
+        {"eid": eid},
+    )
+    _execute_if_table_exists(
+        db,
+        table_names,
+        "task_instance_solver_exclusions",
+        "DELETE FROM task_instance_solver_exclusions WHERE task_instance_id IN "
+        "(SELECT id FROM task_instances WHERE event_id = :eid)",
         {"eid": eid},
     )
     _execute_if_table_exists(

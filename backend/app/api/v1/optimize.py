@@ -25,6 +25,7 @@ from app.core.optimization_runner import run_optimization_background
 from app.api.v1.app_settings import get_solver_settings
 from app.core.config import settings as app_settings
 from app.core.debug_logging import debug_print
+from app.core.solver_exclusions import filter_solver_active_tasks
 
 router = APIRouter()
 
@@ -60,6 +61,20 @@ async def start_optimization(
     debug_print(">"*80 + "\n")
     
     try:
+        active_tasks = filter_solver_active_tasks(
+            db,
+            request.event_id,
+            request.tasks,
+        )
+        if not active_tasks:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "NO_ACTIVE_TASKS",
+                    "message": "Nothing to optimise because all tasks are ignored.",
+                },
+            )
+
         # DEBUG: Print raw request data
         debug_print("\n" + "="*80)
         debug_print("OPTIMISATION REQUEST RECEIVED")
@@ -67,14 +82,15 @@ async def start_optimization(
         debug_print(f"Event ID: {request.event_id}")
         debug_print(f"Date: {request.date}")
         debug_print(f"Test Mode: {request.test_mode}")
-        debug_print(f"Number of tasks: {len(request.tasks)}")
+        debug_print(f"Number of tasks: {len(active_tasks)}")
+        debug_print(f"Ignored tasks removed: {len(request.tasks) - len(active_tasks)}")
         debug_print(f"Number of persons: {len(request.persons)}")
         debug_print(f"Number of locations: {len(request.locations)}")
         debug_print(f"Number of capabilities: {len(request.capabilities)}")
         
         # Print first few tasks for inspection
         debug_print("\nFirst 3 tasks:")
-        for i, task in enumerate(request.tasks[:3]):
+        for i, task in enumerate(active_tasks[:3]):
             debug_print(f"  Task {i}: {task.model_dump()}")
         
         debug_print("="*80 + "\n")
@@ -116,7 +132,7 @@ async def start_optimization(
         debug_print("=" * 80)
         debug_print(f"OPTIMISATION API - Starting for Event {request.event_id}, Date {request.date}")
         debug_print(f"Test Mode: {request.test_mode}")
-        debug_print(f"Tasks: {len(request.tasks)}, Persons: {len(request.persons)}")
+        debug_print(f"Tasks: {len(active_tasks)}, Persons: {len(request.persons)}")
         debug_print("=" * 80)
         
         # Use fatigue scores from the request (sent by frontend).
@@ -133,7 +149,7 @@ async def start_optimization(
         
         # Normalise input data with database access for field types
         normalized_input = normalize_optimization_input(
-            tasks=request.tasks,
+            tasks=active_tasks,
             persons=request.persons,
             locations=request.locations,
             capabilities=request.capabilities,
