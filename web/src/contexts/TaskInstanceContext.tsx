@@ -26,6 +26,8 @@ export interface TaskInstanceContextValue {
   instances: TaskInstance[];
   /** True while the initial load or a full refresh is in progress. */
   loading: boolean;
+  /** Task IDs persistently excluded from flow checking and optimisation. */
+  ignoredTaskIds: ReadonlySet<number>;
 
   // CRUD
   /** Reload all instances from the server. */
@@ -53,6 +55,8 @@ export interface TaskInstanceContextValue {
   ) => Promise<TaskInstance[]>;
   /** Delete all task instances for the current event. */
   clearAll: () => Promise<void>;
+  /** Persist selected tasks as solver-ignored or solver-active. */
+  setTasksIgnored: (ids: number[], ignored: boolean) => Promise<void>;
 }
 
 const TaskInstanceContext = createContext<TaskInstanceContextValue | undefined>(
@@ -71,6 +75,7 @@ export function TaskInstanceProvider({
 }) {
   const { selectedEventId } = useEvent();
   const [instances, setInstances] = useState<TaskInstance[]>([]);
+  const [ignoredTaskIds, setIgnoredTaskIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
 
   // Track which event_id we loaded for, to avoid stale-closure issues
@@ -80,6 +85,7 @@ export function TaskInstanceProvider({
   const refresh = useCallback(async () => {
     if (!selectedEventId) {
       setInstances([]);
+      setIgnoredTaskIds(new Set());
       return;
     }
     setLoading(true);
@@ -95,10 +101,16 @@ export function TaskInstanceProvider({
           // restore endpoint may not exist on older backends - ignore
         }
       }
+      const exclusions = await taskInstancesApi.getSolverExclusions(
+        selectedEventId,
+      );
 
       // Only update if we're still looking at the same event
       if (eventIdRef.current === selectedEventId) {
         setInstances(data);
+        setIgnoredTaskIds(
+          new Set(exclusions.ignored_task_instance_ids),
+        );
       }
     } catch (err) {
       console.error("Failed to load task instances", err);
@@ -110,6 +122,8 @@ export function TaskInstanceProvider({
   // Auto-load when the selected event changes
   useEffect(() => {
     eventIdRef.current = selectedEventId ?? null;
+    setInstances([]);
+    setIgnoredTaskIds(new Set());
     refresh();
   }, [selectedEventId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -146,6 +160,11 @@ export function TaskInstanceProvider({
     if (!selectedEventId) throw new Error("No event selected");
     await taskInstancesApi.delete(id, selectedEventId);
     setInstances((prev) => prev.filter((inst) => inst.id !== id));
+    setIgnoredTaskIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }, [selectedEventId]);
 
   // ------ delete multiple ------
@@ -154,6 +173,11 @@ export function TaskInstanceProvider({
     await Promise.all(ids.map((id) => taskInstancesApi.delete(id, selectedEventId)));
     const idSet = new Set(ids);
     setInstances((prev) => prev.filter((inst) => !idSet.has(inst.id)));
+    setIgnoredTaskIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
   }, [selectedEventId]);
 
   // ------ bulk optimised ------
@@ -179,13 +203,35 @@ export function TaskInstanceProvider({
     if (!selectedEventId) return;
     await taskInstancesApi.deleteAll(selectedEventId);
     setInstances([]);
+    setIgnoredTaskIds(new Set());
   }, [selectedEventId]);
+
+  // ------ solver-only exclusions ------
+  const setTasksIgnored = useCallback(
+    async (ids: number[], ignored: boolean) => {
+      if (!selectedEventId) throw new Error("No event selected");
+      const uniqueIds = Array.from(new Set(ids));
+      if (uniqueIds.length === 0) return;
+      const response = await taskInstancesApi.setSolverExclusions(
+        selectedEventId,
+        uniqueIds,
+        ignored,
+      );
+      if (eventIdRef.current === selectedEventId) {
+        setIgnoredTaskIds(
+          new Set(response.ignored_task_instance_ids),
+        );
+      }
+    },
+    [selectedEventId],
+  );
 
   return (
     <TaskInstanceContext.Provider
       value={{
         instances,
         loading,
+        ignoredTaskIds,
         refresh,
         createInstance,
         createInstances,
@@ -194,6 +240,7 @@ export function TaskInstanceProvider({
         deleteInstances,
         bulkSetOptimised,
         clearAll,
+        setTasksIgnored,
       }}
     >
       {children}

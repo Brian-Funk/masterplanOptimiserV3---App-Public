@@ -1,11 +1,10 @@
 import { capabilitiesApi, flowApi, Capability } from "@/lib/api";
 import {
-  getWorkingDayForDateTime,
-  lineariseTaskTimesForWorkingDay,
   normaliseScheduleDayBoundary,
   type ScheduleDayBoundary,
 } from "@/lib/workingDayBoundary";
 import type { FeasibilityDiagnostics } from "@/types/optimization";
+import { prepareSolverTasksForWorkingDay } from "./solverTaskPreparation";
 
 interface Person {
   id: number;
@@ -49,14 +48,16 @@ interface FlowCheckParams {
   silent?: boolean;
   signal?: AbortSignal;
   skipFloating?: boolean; // When true, exclude floating tasks for faster auto-checks
+  ignoredTaskIds?: ReadonlySet<number>;
 }
 
 export interface FlowCheckResult {
-  status: "checking" | "valid" | "invalid";
+  status: "checking" | "valid" | "invalid" | "empty";
   errors: string[];
   infeasibleTaskIds: Set<number>;
   infeasibleTaskErrors: Map<number, string[]>;
   diagnostics: FeasibilityDiagnostics | null;
+  emptyMessage?: string;
 }
 
 /** Build and submit a flow check while preserving task-type work policies. */
@@ -75,82 +76,53 @@ export async function performFlowCheck(
     silent = false,
     signal,
     skipFloating = false,
+    ignoredTaskIds = new Set<number>(),
   } = params;
 
   try {
     const boundary = normaliseScheduleDayBoundary(scheduleDayBoundary);
-    const getInstanceStartClock = (instance: any): string | null => {
-      const template = templates.find((t: any) => t.id === instance.template_id);
-      if (!template?.fields || !instance.field_values) return null;
-      for (const field of template.fields) {
-        const value = instance.field_values[field.id];
-        if (field.type === "start_end_time" && value?.start) return value.start;
-        if (field.type === "time_range" && value?.start) return value.start;
-        if (field.type === "time" && typeof value === "string") return value;
-      }
-      return null;
-    };
-
-    // Filter to current event AND selected working day
-    const eventTasks = taskInstances.filter(
-      (instance: any) =>
-        instance.event_id === selectedEvent.id &&
-        getWorkingDayForDateTime(
-          instance.date,
-          getInstanceStartClock(instance),
-          boundary,
-        ) === selectedDate,
-    );
-
-    // Extract location_id from field_values using template field definitions
-    const tasksWithLocation = eventTasks.map((task: any) => {
-      const template = templates.find((t: any) => t.id === task.template_id);
-      const taskType = taskTypes.find(
-        (type) => type.id === task.task_type_id,
-      );
-
-      let locationId = null;
-      const isFloating = template?.is_floating || false;
-      const isTransfer = template?.is_transfer || false;
-
-      // Find location field from template
-      if (template?.fields && task.field_values) {
-        const locationField = template.fields.find(
-          (f: any) => f.type === "location" || f.type === "start_location",
-        );
-
-        if (locationField) {
-          const locationFieldValue = task.field_values[locationField.id];
-
-          locationId =
-            locationFieldValue === null
-              ? null // Preserve null = "Any Location" (solver picks)
-              : typeof locationFieldValue === "number"
-                ? locationFieldValue
-                : locationFieldValue?.value;
-        }
-      }
-
-      return {
-        ...task,
-        id: Math.floor(task.id), // Convert float IDs to integers
-        location_id: locationId,
-        is_floating: isFloating,
-        is_transfer: isTransfer,
-        counts_towards_work_time:
-          taskType?.counts_towards_work_time !== false,
-      };
+    const prepared = prepareSolverTasksForWorkingDay({
+      eventId: selectedEvent.id,
+      selectedDate,
+      templates,
+      taskTypes,
+      taskInstances,
+      ignoredTaskIds,
+      scheduleDayBoundary: boundary,
+      skipFloating,
     });
-
-    // Allow tasks with null location (any-location tasks) - only exclude undefined
-    const tasksWithValidLocation = tasksWithLocation
-      .filter(
-        (task: any) =>
-          task.location_id !== undefined && (!skipFloating || !task.is_floating),
-      )
-      .map((task: any) =>
-        lineariseTaskTimesForWorkingDay(task, selectedDate, boundary),
-      );
+    if (prepared.allTaskInstances.length === 0) {
+      return {
+        status: "empty",
+        errors: [],
+        infeasibleTaskIds: new Set(),
+        infeasibleTaskErrors: new Map(),
+        diagnostics: null,
+        emptyMessage: "Nothing to check because this day has no tasks.",
+      };
+    }
+    if (prepared.activeTaskInstances.length === 0) {
+      return {
+        status: "empty",
+        errors: [],
+        infeasibleTaskIds: new Set(),
+        infeasibleTaskErrors: new Map(),
+        diagnostics: null,
+        emptyMessage: "Nothing to check — all tasks are ignored.",
+      };
+    }
+    if (prepared.solverTasks.length === 0) {
+      return {
+        status: "empty",
+        errors: [],
+        infeasibleTaskIds: new Set(),
+        infeasibleTaskErrors: new Map(),
+        diagnostics: null,
+        emptyMessage: skipFloating
+          ? "No fixed tasks are available for this quick check."
+          : "No tasks with valid locations are available to check.",
+      };
+    }
 
     // Fetch capabilities from API
     const capabilities = await capabilitiesApi.getAll(selectedEvent.id);
@@ -189,7 +161,8 @@ export async function performFlowCheck(
 
     // Prepare data for flow check
     const flowCheckData = {
-      tasks: tasksWithValidLocation,
+      event_id: selectedEvent.id,
+      tasks: prepared.solverTasks,
       persons: sanitizedPersons,
       locations: sanitizedLocations,
       capabilities: sanitizedCapabilities,

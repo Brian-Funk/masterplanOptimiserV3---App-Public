@@ -68,11 +68,13 @@ export function OptimizationProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { instances, bulkSetOptimised } = useTaskInstances();
+  const { instances, ignoredTaskIds, bulkSetOptimised } = useTaskInstances();
   const { addToast } = useToast();
   const instancesRef = useRef(instances);
+  const ignoredTaskIdsRef = useRef(ignoredTaskIds);
   const bulkSetOptimisedRef = useRef(bulkSetOptimised);
   instancesRef.current = instances;
+  ignoredTaskIdsRef.current = ignoredTaskIds;
   bulkSetOptimisedRef.current = bulkSetOptimised;
   const hasProcessedRef = useRef<number | null>(null);
   const completionResolversRef = useRef(
@@ -204,6 +206,7 @@ export function OptimizationProvider({
               const matchingInstances = instancesRef.current.filter(
                 (i) =>
                   i.event_id === eventId &&
+                  !ignoredTaskIdsRef.current.has(Math.floor(i.id)) &&
                   (i.date === date || assignedInstanceIds.has(Math.floor(i.id))),
               );
               const bulkItems: {

@@ -18,6 +18,7 @@ vi.mock("@/lib/optimizationApi", () => ({
 vi.mock("@/contexts/TaskInstanceContext", () => ({
   useTaskInstances: () => ({
     instances: [],
+    ignoredTaskIds: new Set<number>(),
     bulkSetOptimised: vi.fn(),
   }),
 }));
