@@ -14,6 +14,7 @@ from app.models.assignment import AssignmentSource, Assignment
 from app.models.theme import Theme
 from app.models.masterplan_layout import MasterplanLayout
 from app.models.task_instance import TaskInstance
+from app.models.task_instance_solver_exclusion import TaskInstanceSolverExclusion
 from app.models.google_calendar import GoogleCalendarConnection
 from app.models.task_template import TaskTemplate
 from app.models.calendar_export_format import CalendarExportFormat
@@ -53,6 +54,7 @@ __all__ = [
     "OptimizationJob",
     "MasterplanLayout",
     "TaskInstance",
+    "TaskInstanceSolverExclusion",
     "GoogleCalendarConnection",
     "TaskTemplate",
     "CalendarExportFormat",
