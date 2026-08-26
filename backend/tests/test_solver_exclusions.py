@@ -184,6 +184,17 @@ def test_solver_requests_defensively_remove_persisted_exclusions(database):
     assert [task.id for task in filtered] == [active.id]
 
 
+def test_legacy_synthetic_flow_request_remains_event_optional():
+    request = FlowCheckRequest(
+        tasks=[{"id": 901, "name": "Synthetic diagnostic task"}],
+        persons=[],
+        locations=[],
+        capabilities=[],
+    )
+
+    assert request.event_id is None
+
+
 @pytest.mark.asyncio
 async def test_all_ignored_flow_and_optimisation_requests_are_rejected(database):
     db = database()
