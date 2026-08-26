@@ -381,6 +381,11 @@ export function OptimizationProvider({
     date: string,
     jobId: number,
   ): Promise<OptimizationCompletion> => {
+    // A newly started run must always be eligible for completion processing.
+    // Older Desktop databases could reuse a numeric job ID when rerunning the
+    // same day, so retaining the previous guard here would discard the new
+    // solver result before it reached task_instances.
+    hasProcessedRef.current = null;
     setProgressData(null);
     setElapsedSeconds(undefined);
     const completion = new Promise<OptimizationCompletion>((resolve) => {

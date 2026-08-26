@@ -4,7 +4,7 @@ Handles starting optimisation jobs and querying their status
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from typing import List
 from datetime import datetime
 import httpx
@@ -28,6 +28,25 @@ from app.core.debug_logging import debug_print
 from app.core.solver_exclusions import filter_solver_active_tasks
 
 router = APIRouter()
+
+
+def _delete_terminal_job_for_rerun(
+    db: Session,
+    existing_job: OptimizationJob,
+) -> int:
+    """Delete a replaceable terminal job and reserve a fresh numeric identity.
+
+    SQLite may reuse the largest ``INTEGER PRIMARY KEY`` after its row is
+    deleted.  The Desktop frontend uses the job ID to suppress duplicate
+    completion polling, so reusing that ID can make a new result look like an
+    already-processed result.  Capture the next ID before deletion and assign
+    it explicitly to the replacement job.
+    """
+    max_job_id = db.query(func.max(OptimizationJob.id)).scalar() or 0
+    next_job_id = int(max_job_id) + 1
+    db.delete(existing_job)
+    db.flush()
+    return next_job_id
 
 
 # ============================================================================
@@ -114,13 +133,17 @@ async def start_optimization(
             OptimizationJob.event_id == request.event_id,
             OptimizationJob.date == request.date
         ).first()
+        replacement_job_id = None
         
         if existing_job:
             # If job is completed or failed, we can create a new one (rerun)
             if existing_job.status in ["completed", "infeasible", "undetermined", "failed"]:
-                # Delete old job to create fresh one
-                db.delete(existing_job)
-                db.commit()
+                # Replace the old terminal row while ensuring that SQLite does
+                # not recycle its numeric ID for the new run.
+                replacement_job_id = _delete_terminal_job_for_rerun(
+                    db,
+                    existing_job,
+                )
             else:
                 # Job is still pending/running, return existing
                 return OptimizeStartResponse(
@@ -166,6 +189,7 @@ async def start_optimization(
         
         # Create job record
         job = OptimizationJob(
+            id=replacement_job_id,
             event_id=request.event_id,
             date=request.date,
             status="pending",
