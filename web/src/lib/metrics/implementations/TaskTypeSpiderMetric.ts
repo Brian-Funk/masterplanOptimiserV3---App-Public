@@ -246,7 +246,7 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
       if (!person) continue;
 
       const personTasks = schedule.tasks.filter((t) =>
-        personCountsTowardsWorkTime(t, personId),
+        this.personHasTaskTypeDuration(t, personId),
       );
 
       const values = this.hoursByType(personTasks, taskTypes);
@@ -280,7 +280,7 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
       const totals = new Array(taskTypes.length).fill(0);
       for (const member of members) {
         const memberTasks = schedule.tasks.filter((t) =>
-          personCountsTowardsWorkTime(t, member.id),
+          this.personHasTaskTypeDuration(t, member.id),
         );
         const memberHours = this.hoursByType(memberTasks, taskTypes);
         for (let i = 0; i < totals.length; i++) {
@@ -312,7 +312,7 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
 
       for (const person of schedule.people) {
         const tasks = schedule.tasks.filter((t) =>
-          personCountsTowardsWorkTime(t, person.id),
+          this.personHasTaskTypeDuration(t, person.id),
         );
         const hours = this.hoursByType(tasks, taskTypes);
         for (let i = 0; i < totals.length; i++) {
@@ -346,6 +346,21 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
   // ── helpers ──
 
   /**
+   * Task-type duration is descriptive even for task types explicitly exempt
+   * from working-time limits (for example sleep). For work-counting tasks,
+   * role-aware assignments still exclude transferee-only passengers.
+   */
+  private personHasTaskTypeDuration(
+    task: TaskInstance,
+    personId: number,
+  ): boolean {
+    if (!countsTowardsWorkTime(task)) {
+      return task.person_ids.includes(personId);
+    }
+    return personCountsTowardsWorkTime(task, personId);
+  }
+
+  /**
    * For a set of tasks return an array of total hours, one per task type,
    * in the same order as `taskTypes`.
    */
@@ -356,7 +371,7 @@ export class TaskTypeHoursSpiderMetric extends BaseMetric {
     return taskTypes.map((tt) => {
       let hours = 0;
       for (const t of tasks) {
-        if (t.task_type_id === tt.id && countsTowardsWorkTime(t)) {
+        if (t.task_type_id === tt.id) {
           hours += this.getTaskDuration(t);
         }
       }
