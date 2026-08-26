@@ -75,7 +75,10 @@ router = APIRouter()
 # ============================================================================
 
 class FlowCheckRequest(BaseModel):
-    event_id: int
+    # Current Desktop clients always provide the event so persisted solver
+    # exclusions can be enforced. Keep this optional for older diagnostic
+    # callers that submit synthetic, non-persisted tasks.
+    event_id: Optional[int] = None
     tasks: List[Task]
     persons: List[Person]
     locations: List[Location]
@@ -108,12 +111,14 @@ async def check_flow_endpoint(
     Returns list of errors if infeasible, empty list if feasible.
     """
     try:
-        active_tasks = filter_solver_active_tasks(
-            db,
-            request.event_id,
-            request.tasks,
-        )
-        if not active_tasks:
+        active_tasks = request.tasks
+        if request.event_id is not None:
+            active_tasks = filter_solver_active_tasks(
+                db,
+                request.event_id,
+                request.tasks,
+            )
+        if request.tasks and not active_tasks:
             raise HTTPException(
                 status_code=422,
                 detail={
