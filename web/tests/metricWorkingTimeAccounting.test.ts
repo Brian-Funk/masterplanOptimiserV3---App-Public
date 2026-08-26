@@ -141,6 +141,24 @@ describe("transfer working-time metrics", () => {
     ]);
   });
 
+  it("retains descriptive duration for non-work task types", async () => {
+    const schedule = build({
+      start_time: "09:00",
+      end_time: "12:00",
+      assigned_persons: [1],
+    });
+    schedule.tasks[0].counts_towards_work_time = false;
+
+    expect(calculatePersonHoursByDay(schedule).get("2032-04-21")).toBeUndefined();
+
+    const hours = await new TaskTypeHoursSpiderMetric().calculate(
+      schedule,
+      undefined,
+      { personIds: [1] },
+    );
+    expect((hours.data as any).datasets[0].values).toEqual([3]);
+  });
+
   it("keeps passenger assignment and break context while excluding its hours", async () => {
     const schedule = build({
       start_time: "09:00",
